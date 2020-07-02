@@ -1,0 +1,20 @@
+<!-- Launch joint tracking nodes -->
+<launch>
+
+    <!-- Start openni_tracker for skeleton transforms -->
+    <node name="openni_tracker" pkg="openni_tracker" type="openni_tracker" output="screen">
+        <param name="camera_frame_id" value="camera_link"/>
+    </node>
+    
+    <!-- Convert transforms and display skeleton in rviz -->
+    <node name="convert_transforms" pkg="pepper_vr_teleop" type="convert_transforms.py" output="screen">
+        <param name="main_frame" value="camera_link"/>
+        <param name="publish_skeleton" value="True"/>
+    </node>
+    
+    <!-- Start controller -->
+    <node name="kinect_control" pkg="pepper_vr_teleop" type="kinect_control.py" output="screen">
+        <param name="speed_fraction" value="0.2"/>
+    </node>
+
+</launch>

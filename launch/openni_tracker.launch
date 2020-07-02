@@ -1,0 +1,8 @@
+<launch>
+
+    <!-- Start openni_tracker for skeleton transforms -->
+    <node name="openni_tracker" pkg="openni_tracker" type="openni_tracker" output="screen">
+        <param name="camera_frame_id" value="camera_link"/>
+    </node>
+
+</launch>

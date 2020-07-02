@@ -1,0 +1,11 @@
+<!-- Uses the test_pose.bag file to simulate the Kinect data and then runs 
+     'convert_transforms' to publish transforms used by 'kinect_control' -->
+
+<launch>
+    
+    <param name="use_sim_time" value="true"/>
+
+    <node name="convert_transforms" pkg="pepper_vr_teleop" type="convert_transforms.py"/>
+    <node name="play" pkg="rosbag" type="play" output="screen" args="--clock -l -s 10 $(find pepper_vr_teleop)/bags/test_pose.bag"/>
+
+</launch>

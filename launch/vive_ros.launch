@@ -1,0 +1,9 @@
+<!--
+     Starts the 'server_vr.launch' file and the 'vive.launch' file. On closing
+     runs 'close_servervr.sh' to clean up the process. This allows the Vive ROS
+     programs to be run with a single command.
+-->
+
+<launch>
+    <node name="vive_ros" pkg="pepper_vr_teleop" type="vive_ros.sh" output="screen"/>
+</launch>

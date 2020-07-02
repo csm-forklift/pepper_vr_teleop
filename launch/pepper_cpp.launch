@@ -1,0 +1,44 @@
+<!-- This is a copy from pepper_bringup/launch/pepper_full.launch
+     A call to "camera.launch" is used to set the front camera resolution
+     and framerate
+-->
+<launch>
+
+  <arg name="nao_ip"              default="$(optenv NAO_IP 127.0.0.1)" />
+  <arg name="nao_port"            default="$(optenv NAO_PORT 9559)" />
+
+  <arg name="roscore_ip"          default="127.0.0.1" />
+  <arg name="network_interface"   default="eth0" />
+
+  <arg name="namespace"           default="$(optenv ROS_NAMESPACE pepper_robot)" />
+
+  <!-- naoqi driver -->
+  <include file="$(find naoqi_driver)/launch/naoqi_driver.launch">
+    <arg name="nao_ip"            value="$(arg nao_ip)" />
+    <arg name="nao_port"          value="$(arg nao_port)" />
+    <arg name="roscore_ip"        value="$(arg roscore_ip)" />
+    <arg name="network_interface" value="$(arg network_interface)" />
+    <arg name="namespace"         value="$(arg namespace)" />
+  </include>
+
+  <!-- launch pose manager -->
+  <include file="$(find naoqi_pose)/launch/pose_manager.launch" ns="$(arg namespace)/pose" >
+    <arg name="nao_ip"            value="$(arg nao_ip)" />
+    <arg name="nao_port"          value="$(arg nao_port)" />
+  </include>
+
+  <!-- launch perception -->
+  <include file="$(find pepper_bringup)/launch/perception.launch.xml">
+    <arg name="namespace"         value="$(arg namespace)" />
+  </include>
+
+  <!-- Top front camera for viewing in VR headset -->
+  <include file="$(find pepper_sensors_py)/launch/camera.launch" ns="$(arg namespace)/camera/front" >
+    <arg name="nao_ip"          value="$(arg nao_ip)" />
+    <arg name="source"          value="0" /> <!-- top camera -->
+    <arg name="color_space"     value="13" /> <!-- BGR -->
+    <arg name="resolution"      value="2" /> <!-- 640x480 -->
+    <arg name="frame_rate"      value="30" /> <!-- 30fps -->
+  </include>
+
+</launch>

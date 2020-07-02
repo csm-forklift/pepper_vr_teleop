@@ -1,0 +1,27 @@
+<!-- Launches the node required to control Pepper using the Vive VR Headset -->
+<launch>
+
+	<arg name="robot_ip" default="169.254.57.159"/>
+	<arg name="robot_port" default="9559"/>
+	<arg name="network_interface" default="eno1"/>
+
+	<!-- Start the Vive ROS Nodes -->
+	<!--
+	<include file="$(find pepper_vr_teleop)/launch/vive_ros.launch"/>
+    -->
+
+	<!-- Start the head orientation controller -->
+	<node name="headset_control" pkg="pepper_vr_teleop" type="headset_control.py" output="screen">
+		<param name="robot_ip" value="$(arg robot_ip)"/>
+		<param name="robot_port" value="$(arg robot_port)"/>
+		<param name="speed_fraction" value="0.1"/>
+		<!--<param name="yaw_offset" value="0.6"/>-->
+	</node>
+
+	<!-- Convert images to be used in the VR Headset -->
+	<node name="image_to_vr" pkg="pepper_vr_teleop" type="image_to_vr.py" output="screen">
+		<param name="image_topic" value="/pepper_interface/camera/front/image_raw"/>
+	</node>
+
+
+</launch>

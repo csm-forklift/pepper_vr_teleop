@@ -2,7 +2,8 @@
 <launch>
     
     <arg name="simulation" default="false"/>
-    <arg name="robot_ip" default="169.254.5.105"/>
+    <!-- <arg name="robot_ip" default="169.254.5.105"/> -->
+    <arg name="robot_ip" default="138.67.198.34"/>
     <arg name="robot_port" default="9559"/>
     
     <node name="pepper_interface" pkg="pepper_vr_teleop" type="pepper_interface.py" output="screen" unless="$(arg simulation)">

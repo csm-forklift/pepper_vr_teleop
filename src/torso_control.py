@@ -32,18 +32,22 @@ class TorsoControl:
         self.velocity_x_max = rospy.get_param('~velocity_x_max', 0.2) # m/s
         self.velocity_y_max = rospy.get_param('~velocity_y_max', 0.2) # m/s
         self.velocity_angular_max = rospy.get_param('~velocity_angular_max', math.pi/4) # rad/s
-        self.velocity_angular_scale = 1
-        self.max_user_tilt_angle = math.pi/4
+        # Torso tilt required to max out the velocity
+        self.max_user_tilt_angle = math.pi/6
         self.x_max_length = math.cos(math.pi/2 - self.max_user_tilt_angle)
         self.y_max_length = math.cos(math.pi/2 - self.max_user_tilt_angle)
+        self.max_rotation = math.pi/4
 
         # Check to ensure the deadband does not exceed the max values
         if (self.x_max_length <= self.deadband_x):
-            rospy.logerr("[{0}]: The deadband radius is larger than the maximum for the X dimension. Please decrease the deadband for x or increase the 'x_max_length' variable in the {0} node.".format(rospy.get_name()))
-            rospy.signal_shutdown("[{0}]: Deadband radius error.".format(rospy.get_name()))
+            rospy.logerr("[{0}]: The deadband for X is larger than the maximum for the X dimension. Please decrease the deadband for x or increase the 'x_max_length' variable in the {0} node.".format(rospy.get_name()))
+            rospy.signal_shutdown("[{0}]: Deadband x error.".format(rospy.get_name()))
         if (self.y_max_length <= self.deadband_y):
-            rospy.logerr("[{0}]: The deadband radius is larger than the maximum for the Y dimension. Please decrease the deadband radius or increase the 'y_max_length' variable in the {0} node.".format(rospy.get_name()))
-            rospy.signal_shutdown("[{0}]: Deadband radius error.".format(rospy.get_name()))
+            rospy.logerr("[{0}]: The deadband for Y is larger than the maximum for the Y dimension. Please decrease the deadband for y or increase the 'y_max_length' variable in the {0} node.".format(rospy.get_name()))
+            rospy.signal_shutdown("[{0}]: Deadband y error.".format(rospy.get_name()))
+        if (self.max_rotation <= self.deadband_angle):
+            rospy.logerr("[{0}]: The deadband for the angle is larger than the maximum allowed rotation. Please decrease the deadband or increase the 'max_rotation' variable in the {0} node.".format(rospy.get_name()))
+            rospy.signal_shutdown("[{0}]: Deadband angle error.".format(rospy.get_name()))
 
         # Variables
         self.joystick_x = 0
@@ -171,7 +175,7 @@ class TorsoControl:
         self.joystick_x = j_R_b[0,2]
         self.joystick_y = j_R_b[1,2]
 
-        # Check deadband
+        # Check deadband for X
         if (abs(self.joystick_x) > self.deadband_x):
             # Saturate the joystick value
             self.joystick_x = min(self.joystick_x, self.x_max_length)
@@ -186,6 +190,7 @@ class TorsoControl:
             # Apply scaling
             velocity_x = self.velocity_x_max * self.joystick_x
 
+        # Check deadband for Y
         if (abs(self.joystick_y) > self.deadband_y):
             # Saturate the joystick value
             self.joystick_y = min(self.joystick_y, self.y_max_length)
@@ -228,9 +233,17 @@ class TorsoControl:
 
         # Apply deadband
         if (abs(shoulder_theta) > self.deadband_angle):
-            velocity_angular = self.velocity_angular_scale*(shoulder_theta - math.copysign(self.deadband_angle, shoulder_theta))
-            velocity_angular = min(velocity_angular, self.velocity_angular_max)
-            velocity_angular = max(velocity_angular, -self.velocity_angular_max)
+            shoulder_theta = min(shoulder_theta, self.max_rotation)
+            shoulder_theta = max(shoulder_theta, -self.max_rotation)
+
+            # Shift origin to deadband position
+            shoulder_theta = (shoulder_theta - math.copysign(self.deadband_angle, shoulder_theta))
+
+            # Map to range 0 to 1
+            shoulder_theta = shoulder_theta / (self.max_rotation - self.deadband_angle)
+
+            # Apply scaling
+            velocity_angular = self.velocity_angular_max*shoulder_theta
 
         return velocity_angular
 

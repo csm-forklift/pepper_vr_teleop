@@ -1,0 +1,32 @@
+<!-- Launch nodes to control Pepper's base using torso orientation -->
+<launch>
+
+    <arg name="pi" value="3.141592654"/>
+    <arg name="start_kinect" default="false"/>
+    
+    <group if="$(arg start_kinect)">
+        <!-- Start openni_tracker for skeleton transforms -->
+        <node name="openni_tracker" pkg="openni_tracker" type="openni_tracker" output="screen">
+            <param name="camera_frame_id" value="camera_link"/>
+        </node>
+    
+        <!-- Convert transforms and display skeleton in rviz -->
+        <node name="convert_transforms" pkg="pepper_vr_teleop" type="convert_transforms.py" output="screen">
+            <param name="main_frame" value="camera_link"/>
+            <param name="publish_skeleton" value="True"/>
+        </node>
+    </group>
+
+    <node name="torso_control" pkg="pepper_vr_teleop" type="torso_control.py" output="screen">
+        <param name="calibration_time" value="3.0"/>
+        <param name="deadband_x" value="0.2"/>
+        <param name="deadband_y" value="0.2"/>
+        <param name="deadband_angle" value="$(eval arg('pi')/8)"/>
+        <param name="fixed_frame" value="camera_link"/>
+        <param name="joystick_frame" value="joystick"/>
+        <param name="velocity_x_max" value="0.1"/>
+        <param name="velocity_y_max" value="0.1"/>
+        <param name="velocity_angle_max" value="0.1"/>
+    </node>
+
+</launch>

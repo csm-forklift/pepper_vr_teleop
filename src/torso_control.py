@@ -29,6 +29,10 @@ class TorsoControl:
         self.deadband_angle = rospy.get_param('~deadband_angle', math.pi/8)
         self.fixed_frame = rospy.get_param('~fixed_frame', 'camera_link') # name of the parent frame to 'joystick' frame
         self.joystick_frame = rospy.get_param('~joystick_frame', 'joystick')
+        self.velocity_x_max = rospy.get_param('~velocity_x_max', 0.2) # m/s
+        self.velocity_y_max = rospy.get_param('~velocity_y_max', 0.2) # m/s
+        self.velocity_angular_max = rospy.get_param('~velocity_angular_max', math.pi/4) # rad/s
+        self.velocity_angular_scale = 1
         self.max_user_tilt_angle = math.pi/4
         self.x_max_length = math.cos(math.pi/2 - self.max_user_tilt_angle)
         self.y_max_length = math.cos(math.pi/2 - self.max_user_tilt_angle)
@@ -40,11 +44,6 @@ class TorsoControl:
         if (self.y_max_length <= self.deadband_y):
             rospy.logerr("[{0}]: The deadband radius is larger than the maximum for the Y dimension. Please decrease the deadband radius or increase the 'y_max_length' variable in the {0} node.".format(rospy.get_name()))
             rospy.signal_shutdown("[{0}]: Deadband radius error.".format(rospy.get_name()))
-
-        self.velocity_x_max = 2 # m/s
-        self.velocity_y_max = 2 # m/s
-        self.velocity_angular_max = math.pi/4 # rad/s
-        self.velocity_angular_scale = 1
 
         # Variables
         self.joystick_x = 0

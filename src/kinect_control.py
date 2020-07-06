@@ -33,7 +33,7 @@ class KinectControl:
         self.fraction_max_arm_speed = rospy.get_param('~speed_fraction', 0.1)
 
         # Publishing frequency
-        self.frequency = 5
+        self.frequency = 30
         self.rate = rospy.Rate(self.frequency)
 
         # Publishers

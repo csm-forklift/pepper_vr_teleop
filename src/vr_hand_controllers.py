@@ -5,6 +5,8 @@ controller orientation and distance between the two controllers to determine
 where Pepper's hands should be placed.
 '''
 
+import math
+
 import rospy
 import tf
 
@@ -36,6 +38,10 @@ class VRController():
         self.rate = rospy.Rate(self.frequency)
 
         #----- Pepper Description
+        self.joint_names = ['LShoulderPitch', 'LShoulderRoll', 'LElbowYaw', 'LElbowRoll', 'LWristYaw', 'RShoulderPitch', 'RShoulderRoll', 'RElbowYaw', 'RElbowRoll', 'RWristYaw']
+        self.angle_setpoints = {}
+        for key in self.joint_names:
+            self.angle_setpoints[key] = 0.0
         # Offsets
         # All values are in meters, tables of link offsets is found at:
         #    doc.aldebaran.com/2-5/family/pepper_technical/links_pep.html
@@ -44,12 +50,13 @@ class VRController():
         self.base_link_V_to_LShoulder = [-0.057, 0.14974, 0.08682]
         self.LShoulder_to_LElbow = [0.1812, 0.015, 0.00013]
         # The website has a Y offset of 0.0236, but the simulation model has 0
-        self.LElbow_to_LWrist = [0.150, 0.0, 0.02284]
+        # THe elbow joint has a slight incline which gives a Z offset in the 0 position, but when considering the Wrist frame in the Elbow frame, this is just a straightline distance along the X axis. The length is found from the distance formula using the X and Z lengths from the documentation.
+        self.LElbow_to_LWrist = [0.1517, 0.0, 0.0]
         self.LWrist_to_LHand = [0.0695, 0.0, -0.03030]
         # Right Arm
         self.base_link_V_to_RShoulder = [-0.057, -0.14974, 0.08682]
         self.RShoulder_to_RElbow = [0.1812, -0.015, 0.00013]
-        self.RElbow_to_RWrist = [0.150, 0.0, 0.02284]
+        self.RElbow_to_RWrist = [0.1517, 0.0, 0.0]
         self.RWrist_to_RHand = [0.0695, 0.0, -0.03030]
         # The fixed frame that will be connected to "base_link"
         self.fixed_frame = rospy.get_param('~fixed_frame', 'world')
@@ -72,6 +79,18 @@ class VRController():
         # Subscribers
 
     def spin(self):
+        # DEBUG: set joint angles for testing
+        self.angle_setpoints['LShoulderPitch'] = 1.0
+        self.angle_setpoints['LShoulderRoll'] = 1.0
+        self.angle_setpoints['LElbowYaw'] = -0.5
+        self.angle_setpoints['LElbowRoll'] = -math.pi/2
+        self.angle_setpoints['LWristYaw'] = 0
+        self.angle_setpoints['RShoulderPitch'] = 0
+        self.angle_setpoints['RShoulderRoll'] = 0
+        self.angle_setpoints['RElbowYaw'] = 0
+        self.angle_setpoints['RElbowRoll'] = 0
+        self.angle_setpoints['RWristYaw'] = -0.5
+        self.calculateTransforms()
         while not rospy.is_shutdown():
             # DEBUG: publish transforms for visualization
             self.publishTransforms()
@@ -83,12 +102,19 @@ class VRController():
         '''
         pass
 
-    def calculateTransforms(self, joint_angles):
+    def calculateTransforms(self):
         '''
         Calculates the transforms for Pepper's joints given a set of joint
         angles.
         '''
-        pass
+        #----- Left Arm -----#
+        self.LShoulder.quaternion = tf.transformations.quaternion_from_euler(0, self.angle_setpoints['LShoulderPitch'], self.angle_setpoints['LShoulderRoll'], 'rxyz')
+        self.LElbow.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['LElbowYaw'], 0, self.angle_setpoints['LElbowRoll'], 'rxyz')
+        self.LWrist.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['LWristYaw'], 0, 0, 'rxyz')
+        self.RShoulder.quaternion = tf.transformations.quaternion_from_euler(0, self.angle_setpoints['RShoulderPitch'], self.angle_setpoints['RShoulderRoll'], 'rxyz')
+        self.RElbow.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['RElbowYaw'], 0, self.angle_setpoints['RElbowRoll'], 'rxyz')
+        self.RWrist.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['RWristYaw'], 0, 0, 'rxyz')
+
 
     def publishTransforms(self):
         '''

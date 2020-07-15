@@ -33,7 +33,7 @@ class TorsoControl:
         self.velocity_y_max = rospy.get_param('~velocity_y_max', 0.2) # m/s
         self.velocity_angular_max = rospy.get_param('~velocity_angular_max', math.pi/4) # rad/s
         # Torso tilt required to max out the velocity
-        self.max_user_tilt_angle = math.pi/6
+        self.max_user_tilt_angle = math.pi/8
         self.x_max_length = math.cos(math.pi/2 - self.max_user_tilt_angle)
         self.y_max_length = math.cos(math.pi/2 - self.max_user_tilt_angle)
         self.max_rotation = math.pi/4

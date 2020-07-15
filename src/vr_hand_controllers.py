@@ -71,12 +71,42 @@ class VRController():
         self.RHand = Transform(self.RWrist_to_RHand, [0, 0, 0, 1], 'RWrist_V', 'RHand_V')
 
         #----- TF for Listening and Broadcasting
+        #--- Rotated World Transform
+        # Check if 'headset_control' has set a yaw offset parameter
+        # If not set one.
+        self.yaw_offset = rospy.get_param('/headset_control/yaw_offset', None)
+        if self.yaw_offset is None:
+            rospy.loginfo('[{0}]: No yaw_offset parameter found at "/headset_control/yaw_offset". Using value set at "{0}/yaw_offset"'.format(rospy.get_name()))
+            self.yaw_offset = rospy.get_param('~yaw_offset', 0.0)
+        rospy.loginfo('[{0}]: yaw_offset: {1}'.format(rospy.get_name(), self.yaw_offset))
+        # This rotation is applied to the controllers to rotate them about the world frame to be oriented such that the operator's forward position is directly along the X axis of the world. This new frame is published as 'world_rotated'
+        self.world_rotated_position = [0, 0, 0]
+        self.z_offset_quaternion = tf.transformations.quaternion_from_euler(0, 0, self.yaw_offset, 'rxyz')
+        self.world_rotated = Transform(self.world_rotated_position, self.z_offset_quaternion, self.fixed_frame, 'world_rotated')
+
+        #--- Controller Transforms
+        # Name of left controller frame
+        self.left_name = rospy.get_param('~left_name', 'left_controller')
+        # Name of right controller frame
+        self.right_name = rospy.get_param('~right_name', 'right_controller')
+        self.left_controller = Transform([0, 0, 0], [0, 0, 0, 1], 'world_rotated', 'LHand_C')
+        self.right_controller = Transform([0, 0, 0], [0, 0, 0, 1], 'world_rotated', 'RHand_C')
+        # Multiply the controller rotation by this rotation to adjust it to the
+        # correct frame.
+        # The initial orientation for the controllers are x: down, y: right, z:
+        # backwards. Needed orientation is x: forward, y: left, z: up.
+        self.controller_rotation = tf.transformations.quaternion_from_euler(0, -math.pi/2, math.pi, 'rxyz')
+
         self.tfListener = tf.TransformListener()
         self.tfBroadcaster = tf.TransformBroadcaster()
 
         # Publishers
 
         # Subscribers
+
+        # DEBUG: Test pose for controllers
+        self.left_test_pose = Transform([0.8, -0.3, 1.5], [0.771698, 0.3556943, -0.5155794, 0.1101889], self.fixed_frame, self.left_name)
+        self.right_test_pose = Transform([0.7, 0.3, 1.2], [-0.7427013, 0.3067963, 0.5663613, 0.1830457], self.fixed_frame, self.right_name)
 
     def spin(self):
         # DEBUG: set joint angles for testing
@@ -92,15 +122,29 @@ class VRController():
         self.angle_setpoints['RWristYaw'] = -0.5
         self.calculateTransforms()
         while not rospy.is_shutdown():
+            self.readTransforms()
             # DEBUG: publish transforms for visualization
             self.publishTransforms()
+
+            self.sendTransform(self.world_rotated)
             self.rate.sleep()
 
     def readTransforms(self):
         '''
         Reads the current states of the controllers.
         '''
-        pass
+        # Read the controller transforms
+        # DEBUG: Test pose values
+        left_position = self.left_test_pose.position
+        left_quaternion = self.left_test_pose.quaternion
+        right_position = self.right_test_pose.position
+        right_quaternion = self.right_test_pose.quaternion
+
+        # Convert to proper orientation (X: forward, Y: left, Z: up)
+        self.left_controller.position = left_position
+        self.left_controller.quaternion = tf.transformations.quaternion_multiply(left_quaternion, self.controller_rotation)
+        self.right_controller.position = right_position
+        self.right_controller.quaternion = tf.transformations.quaternion_multiply(right_quaternion, self.controller_rotation)
 
     def calculateTransforms(self):
         '''
@@ -111,27 +155,53 @@ class VRController():
         self.LShoulder.quaternion = tf.transformations.quaternion_from_euler(0, self.angle_setpoints['LShoulderPitch'], self.angle_setpoints['LShoulderRoll'], 'rxyz')
         self.LElbow.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['LElbowYaw'], 0, self.angle_setpoints['LElbowRoll'], 'rxyz')
         self.LWrist.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['LWristYaw'], 0, 0, 'rxyz')
+
+        #----- Right Arm -----#
         self.RShoulder.quaternion = tf.transformations.quaternion_from_euler(0, self.angle_setpoints['RShoulderPitch'], self.angle_setpoints['RShoulderRoll'], 'rxyz')
         self.RElbow.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['RElbowYaw'], 0, self.angle_setpoints['RElbowRoll'], 'rxyz')
         self.RWrist.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['RWristYaw'], 0, 0, 'rxyz')
-
 
     def publishTransforms(self):
         '''
         Pulishes the transforms for Pepper's joints and through
         the /tf topic. This is used for debugging purposes.
         '''
-        self.tfBroadcaster.sendTransform(self.base_link.position, self.base_link.quaternion, rospy.Time.now(), self.base_link.child, self.base_link.parent)
-        # Left Arm
-        self.tfBroadcaster.sendTransform(self.LShoulder.position, self.LShoulder.quaternion, rospy.Time.now(), self.LShoulder.child, self.LShoulder.parent)
-        self.tfBroadcaster.sendTransform(self.LElbow.position, self.LElbow.quaternion, rospy.Time.now(), self.LElbow.child, self.LElbow.parent)
-        self.tfBroadcaster.sendTransform(self.LWrist.position, self.LWrist.quaternion, rospy.Time.now(), self.LWrist.child, self.LWrist.parent)
-        self.tfBroadcaster.sendTransform(self.LHand.position, self.LHand.quaternion, rospy.Time.now(), self.LHand.child, self.LHand.parent)
-        # Right Arm
-        self.tfBroadcaster.sendTransform(self.RShoulder.position, self.RShoulder.quaternion, rospy.Time.now(), self.RShoulder.child, self.RShoulder.parent)
-        self.tfBroadcaster.sendTransform(self.RElbow.position, self.RElbow.quaternion, rospy.Time.now(), self.RElbow.child, self.RElbow.parent)
-        self.tfBroadcaster.sendTransform(self.RWrist.position, self.RWrist.quaternion, rospy.Time.now(), self.RWrist.child, self.RWrist.parent)
-        self.tfBroadcaster.sendTransform(self.RHand.position, self.RHand.quaternion, rospy.Time.now(), self.RHand.child, self.RHand.parent)
+        self.sendTransform(self.base_link)
+
+        #----- Left Arm -----#
+        self.sendTransform(self.LShoulder)
+        self.sendTransform(self.LElbow)
+        self.sendTransform(self.LWrist)
+        self.sendTransform(self.LHand)
+
+        #----- Right Arm -----#
+        self.sendTransform(self.RShoulder)
+        self.sendTransform(self.RElbow)
+        self.sendTransform(self.RWrist)
+        self.sendTransform(self.RHand)
+
+        #----- Controllers -----#
+        self.sendTransform(self.left_controller)
+        self.sendTransform(self.right_controller)
+
+        # DEBUG: test poses
+        self.sendTransform(self.left_test_pose)
+        self.sendTransform(self.right_test_pose)
+
+    def sendTransform(self, transform):
+        '''
+        Uses the tf Broadcaster to send a transform contained in a "Transform"
+        object
+
+        Args
+        ----
+        transform: (Transform), the transform to publish
+
+        Returns
+        -------
+        None
+        '''
+        self.tfBroadcaster.sendTransform(transform.position, transform.quaternion, rospy.Time.now(), transform.child, transform.parent)
 
 if __name__ == '__main__':
     try:

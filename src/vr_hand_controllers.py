@@ -6,8 +6,10 @@ where Pepper's hands should be placed.
 '''
 
 import math
+from scipy.optimize import minimize
 
 import rospy
+from naoqi_bridge_msgs.msg import JointAnglesWithSpeed
 from sensor_msgs.msg import Joy
 import tf
 
@@ -92,10 +94,15 @@ class VRController():
         self.controller_rotation = tf.transformations.quaternion_from_euler(0, math.pi/2, -math.pi/2, 'rzyx')
 
         # DEBUG: Test pose for controllers
-        self.left_test_pose = Transform([0.8, -0.3, 1.5], [0.771698, 0.3556943, -0.5155794, 0.1101889], self.fixed_frame, self.left_name)
-        self.right_test_pose = Transform([0.7, 0.3, 1.2], [-0.7427013, 0.3067963, 0.5663613, 0.1830457], self.fixed_frame, self.right_name)
+        self.left_test_pose = Transform([0.7, 0.3, 1.2], [-0.7427013, 0.3067963, 0.5663613, 0.1830457], 'world_rotated', 'LHand_C')
+        self.right_test_pose = Transform([0.8, -0.3, 1.5], [0.771698, 0.3556943, -0.5155794, 0.1101889], 'world_rotated', 'RHand_C')
 
         # Publishers
+        self.fraction_max_arm_speed = rospy.get_param('~speed_fraction', 0.1)
+        self.joint_angles_msg = JointAnglesWithSpeed()
+        self.joint_angles_msg.joint_names = self.joint_names
+        self.joint_angles_msg.speed = self.fraction_max_arm_speed
+        self.joint_angles_pub = rospy.Publisher('/pepper_interface/joint_angles', JointAnglesWithSpeed, queue_size=3)
 
         # Subscribers
         self.left_controller_sub = rospy.Subscriber('/vive/' + self.left_name + '/joy', Joy, self.leftCallback, queue_size=1)
@@ -134,10 +141,21 @@ class VRController():
         self.publishTransforms()
 
         #--- Controller origin calibration
-        self.left_controller_origin = [0, 0, 0]
-        self.right_controller_origin = [0, 0, 0]
+        # Pepper Origin
         self.left_pepper_origin = [0, 0, 0]
         self.right_pepper_origin = [0, 0, 0]
+        self.left_pepper_setpoint = [0, 0, 0]
+        self.right_pepper_setpoint = [0, 0, 0]
+        for key in self.joint_names:
+            self.angle_setpoints[key] = 0.0
+        self.angle_setpoints['LShoulderPitch'] = math.pi/2
+        self.angle_setpoints['RShoulderPitch'] = math.pi/2
+        self.calculateTransforms()
+        self.left_pepper_origin, _, self.right_pepper_origin, _ = self.calculateHandPoses()
+
+        # Human Origin
+        self.left_controller_origin = [0, 0, 0]
+        self.right_controller_origin = [0, 0, 0]
         print('\n{0}\n{1}{2}\n{0}'.format(60*'=', 16*' ', 'Position Calibration'))
         print('Point arms straight towards the ground. Press the side button on the RIGHT controller and hold position for {0} seconds.'.format(self.calibration_time))
 
@@ -148,9 +166,9 @@ class VRController():
 
     def spin(self):
         # DEBUG: set joint angles for testing
-        self.angle_setpoints['LShoulderPitch'] = 1.0
-        self.angle_setpoints['LShoulderRoll'] = 1.0
-        self.angle_setpoints['LElbowYaw'] = -0.5
+        self.angle_setpoints['LShoulderPitch'] = 0.0
+        self.angle_setpoints['LShoulderRoll'] = 0.0
+        self.angle_setpoints['LElbowYaw'] = 0.0
         self.angle_setpoints['LElbowRoll'] = -math.pi/2
         self.angle_setpoints['LWristYaw'] = 0
         self.angle_setpoints['RShoulderPitch'] = 0
@@ -163,10 +181,107 @@ class VRController():
         while not rospy.is_shutdown():
             self.sendTransform(self.world_rotated)
             self.readTransforms()
+            self.calculateJointAngles()
+            self.publishJointAnglesCommand()
             # DEBUG: publish transforms for visualization
             self.publishTransforms()
 
             self.rate.sleep()
+
+    def testFunction(self):
+        '''
+        Debugging function
+        '''
+        x = 101*[0]
+        x[0] = rospy.get_time()
+        for i in range(1, 101):
+            res = self.optimizationWrapper()
+            x[i] = rospy.get_time()
+        # Average time
+        times = 0
+        for i in range(1, 101):
+            times += x[i] - x[i-1]
+        avg_time = times/100
+        print('Average time: {0}'.format(avg_time))
+
+        for i in range(len(self.joint_names)):
+            self.angle_setpoints[self.joint_names[i]] = res.x[i]
+        self.calculateTransforms()
+
+    def calculateJointAngles(self):
+        '''
+        Calculates the joint angles for the desired position using the
+        optimizer.
+        '''
+        res = self.optimizationWrapper()
+        for i in range(len(self.joint_names)):
+            self.angle_setpoints[self.joint_names[i]] = res.x[i]
+
+    def objective(self, x, left_setpoint, right_setpoint):
+        '''
+        Objective function for the optimization.
+
+        Args
+        ----
+        x: ([10*float]), array of joint angles [LShoulderPitch, LShoulderRoll,
+           LElbowYaw, LElbowRoll, LWristYaw, RShoulderPitch, RShoulderRoll,
+           RElbowYaw, RElbowRoll, RWristYaw]
+        args: (([x,y,z], [x,y,z])), tuple containing two 3 element lists. The
+              first is the left hand setpoint and the second is the right hand
+              setpoint.
+
+        Returns
+        -------
+        cost: (float), the cost of the optimization objective
+        '''
+        # Set angles
+        for i in range(len(self.joint_names)):
+            self.angle_setpoints[self.joint_names[i]] = x[i]
+
+        # Update the hand positions
+        self.calculateTransforms()
+        left_position, left_quaternion, right_position, right_quaternion = self.calculateHandPoses()
+
+        # Calculate position error (distance squared)
+        left_relative = [left_position[i] - self.left_pepper_origin[i] for i in range(3)]
+        right_relative = [right_position[i] - self.right_pepper_origin[i] for i in range(3)]
+        left_error = 0
+        right_error = 0
+        for i in range(3):
+            left_error += (left_setpoint[i] - left_relative[i])**2
+            right_error += (right_setpoint[i] - right_relative[i])**2
+        cost = left_error + right_error
+
+        return cost
+
+    def optimizationWrapper(self):
+        '''
+        Sets a starting value for the optimization, runs the optimization, then
+        publishes the result.
+
+        Args
+        ----
+        None
+
+        Returns
+        -------
+        res: (OptimizeResult), object containing,
+             x: solution array
+             success: boolean indicating if optimizer exited successfully
+             message: string containing cause of termination
+        '''
+        # Determine the desired setpoint
+        left_controller_relative = [self.left_controller.position[i] - self.left_controller_origin[i] for i in range(3)]
+        right_controller_relative = [self.right_controller.position[i] - self.right_controller_origin[i] for i in range(3)]
+        left_pepper_setpoint = [left_controller_relative[i]*self.arm_ratio for i in range(3)]
+        right_pepper_setpoint = [right_controller_relative[i]*self.arm_ratio for i in range(3)]
+
+        x0 = [self.angle_setpoints[key] for key in self.joint_names]
+        bounds = [(-2.0857, 2.0857), (0.0087, 1.5620), (-2.0857, 2.0857),  (-1.5620, -0.0087), (-1.8239, 1.8239), (-2.0857, 2.0857), (-1.5620, -0.0087), (-2.0857, 2.0857), (0.0087, 1.5620), (-1.8239, 1.8239)]
+
+        res = minimize(self.objective, x0, args=(left_pepper_setpoint, right_pepper_setpoint), method='SLSQP', bounds=bounds)
+
+        return res
 
     def readTransforms(self):
         '''
@@ -179,17 +294,22 @@ class VRController():
             self.tfListener.waitForTransform('world_rotated', self.right_name, rospy.Time(), rospy.Duration.from_sec(1.0))
             right_position, right_quaternion = self.tfListener.lookupTransform('world_rotated', self.right_name, rospy.Time())
 
-            # # DEBUG: Test pose values
-            # left_position = self.left_test_pose.position
-            # left_quaternion = self.left_test_pose.quaternion
-            # right_position = self.right_test_pose.position
-            # right_quaternion = self.right_test_pose.quaternion
-
             # Convert to proper orientation (X: forward, Y: left, Z: up)
             self.left_controller.position = left_position
             self.left_controller.quaternion = tf.transformations.quaternion_multiply(left_quaternion, self.controller_rotation)
             self.right_controller.position = right_position
             self.right_controller.quaternion = tf.transformations.quaternion_multiply(right_quaternion, self.controller_rotation)
+
+        #======================================================================#
+        # DEBUG: Test pose values
+        #======================================================================#
+        # self.left_controller.position = self.left_test_pose.position
+        # self.left_controller.quaternion = self.left_test_pose.quaternion
+        # self.right_controller.position = self.right_test_pose.position
+        # self.right_controller.quaternion = self.right_test_pose.quaternion
+        #======================================================================#
+        # DEBUG: Test pose values
+        #======================================================================#
 
     def calculateTransforms(self):
         '''
@@ -205,6 +325,50 @@ class VRController():
         self.RShoulder.quaternion = tf.transformations.quaternion_from_euler(0, self.angle_setpoints['RShoulderPitch'], self.angle_setpoints['RShoulderRoll'], 'rxyz')
         self.RElbow.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['RElbowYaw'], 0, self.angle_setpoints['RElbowRoll'], 'rxyz')
         self.RWrist.quaternion = tf.transformations.quaternion_from_euler(self.angle_setpoints['RWristYaw'], 0, 0, 'rxyz')
+
+    def calculateHandPoses(self):
+        '''
+        Calculates the pose of the hands in the base_link frame. Returns the
+        position and orientation as a quaternion for each hand.
+
+        Args
+        ----
+        None
+
+        Returns
+        -------
+        left_hand_position: ([float, float, float]), (x,y,z) position of the
+                            left hand in base_link frame
+        left_hand_quaternion: ([float, float, float, float]), (x,y,z,w)
+                              quaternion orientation of the left hand in
+                              base_link frame
+        right_hand_position: ([float, float, float]), (x,y,z) position of the
+                             right hand in base_link frame
+        right_hand_quaternion: ([float, float, float, float]), (x,y,z,w)
+                               quaternion orientation of the right hand in
+                               base_link frame
+        '''
+        # Left Hand
+        base_T_lshoulder = self.tfListener.fromTranslationRotation(self.LShoulder.position, self.LShoulder.quaternion)
+        lshoulder_T_lelbow = self.tfListener.fromTranslationRotation(self.LElbow.position, self.LElbow.quaternion)
+        lelbow_T_lwrist = self.tfListener.fromTranslationRotation(self.LWrist.position, self.LWrist.quaternion)
+        lwrist_T_lhand = self.tfListener.fromTranslationRotation(self.LHand.position, self.LHand.quaternion)
+
+        # Right Hand
+        base_T_rshoulder = self.tfListener.fromTranslationRotation(self.RShoulder.position, self.RShoulder.quaternion)
+        rshoulder_T_relbow = self.tfListener.fromTranslationRotation(self.RElbow.position, self.RElbow.quaternion)
+        relbow_T_rwrist = self.tfListener.fromTranslationRotation(self.RWrist.position, self.RWrist.quaternion)
+        rwrist_T_rhand = self.tfListener.fromTranslationRotation(self.RHand.position, self.RHand.quaternion)
+
+        base_T_lhand = base_T_lshoulder.dot(lshoulder_T_lelbow.dot(lelbow_T_lwrist.dot(lwrist_T_lhand)))
+        base_T_rhand = base_T_rshoulder.dot(rshoulder_T_relbow.dot(relbow_T_rwrist.dot(rwrist_T_rhand)))
+
+        left_hand_position = base_T_lhand[0:3,3]
+        left_hand_quaternion = tf.transformations.quaternion_from_matrix(base_T_lhand)
+        right_hand_position = base_T_rhand[0:3,3]
+        right_hand_quaternion = tf.transformations.quaternion_from_matrix(base_T_rhand)
+
+        return left_hand_position, left_hand_quaternion, right_hand_position, right_hand_quaternion
 
     def publishTransforms(self):
         '''
@@ -248,6 +412,13 @@ class VRController():
         None
         '''
         self.tfBroadcaster.sendTransform(transform.position, transform.quaternion, rospy.Time.now(), transform.child, transform.parent)
+
+    def publishJointAnglesCommand(self):
+        '''
+        Publishes the current setpoints to the joint angle command topic.
+        '''
+        self.joint_angles_msg.joint_angles = [self.angle_setpoints[key] for key in self.joint_angles_msg.joint_names]
+        self.joint_angles_pub.publish(self.joint_angles_msg)
 
     def calibrateOrientation(self):
         '''

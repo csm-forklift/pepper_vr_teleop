@@ -79,7 +79,7 @@ class PepperInterface():
         try:
             self.motion_proxy.setExternalCollisionProtectionEnabled('Move', False)
         except:
-            rospy.logwarn('[{0}]: Error turning off external collision detection for base. Base may have trouble moving if it thinks there is an obstacle nearby. Type Pepper\'s IP address into a web browser and check the settings to see if disabling this feature is allowed.'.format(rospy.get_name()))
+            rospy.logwarn('[{0}]: Error turning off external collision detection for base. Base may have trouble moving if it thinks there is an obstacle nearby. Type the following URL into a web browser and check the settings to see if disabling this feature is allowed: "http://<Pepper\'s IP>/advanced/#/settings"'.format(rospy.get_name()))
         rospy.loginfo('[{0}]: Turning off external collision detection for arms'.format(rospy.get_name()))
         try:
             self.motion_proxy.setExternalCollisionProtectionEnabled('Arms', False)

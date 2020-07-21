@@ -450,6 +450,8 @@ class VRController():
             except tf.Exception as err:
                 rospy.logwarn('[{0}]: TF Error: {1}'.format(rospy.get_name(), err))
 
+            # Frames must be rotated so that the X axis is pointing forward
+            # with Z axis pointing up
             left_quaternion = tf.transformations.quaternion_multiply(left_quaternion, self.controller_rotation)
             right_quaternion = tf.transformations.quaternion_multiply(right_quaternion, self.controller_rotation)
 

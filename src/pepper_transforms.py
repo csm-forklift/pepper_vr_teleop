@@ -39,7 +39,10 @@ class Transform():
         broadcaster: tf.TransformBroadcaster
             broadcaster object used to publish the transform
         '''
-        broadcaster.sendTransform(self.position, self.quaternion, rospy.Time.now(), self.child, self.parent)
+        try:
+            broadcaster.sendTransform(self.position, self.quaternion, rospy.Time.now(), self.child, self.parent)
+        except tf.Exception as err:
+            rospy.logwarn('[{0}]: {1}'.format(rospy.get_name(), err))
 
     def listen(self, listener, wait_time=1.0):
         '''
@@ -52,8 +55,11 @@ class Transform():
         wait_time: float
             time in seconds to wait for the transform
         '''
-        listener.waitForTransform(self.parent, self.child, rospy.Time(), rospy.Duration.from_sec(wait_time))
-        self.position, self.quaternion = listener.lookupTransform(self.parent, self.child, rospy.Time())
+        try:
+            listener.waitForTransform(self.parent, self.child, rospy.Time(), rospy.Duration.from_sec(wait_time))
+            self.position, self.quaternion = listener.lookupTransform(self.parent, self.child, rospy.Time())
+        except tf.Exception as err:
+            rospy.logwarn('[{0}]: {1}'.format(rospy.get_name(), err))
 
     def matrix(self):
         '''

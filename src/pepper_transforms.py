@@ -153,7 +153,7 @@ class PepperModel():
         # If the user provides a dictionary containing joint angles, set that as
         # the initial pose used to get the hand origin positions
         if origin_angles is not None:
-            for key in origin_angles.keys()
+            for key in origin_angles.keys():
                 self.current_angles[key] = origin_angles[key]
         else:
             #--- Default Origin Angles ---#

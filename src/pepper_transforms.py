@@ -61,6 +61,17 @@ class Transform():
         except tf.Exception as err:
             rospy.logwarn('[{0}]: {1}'.format(rospy.get_name(), err))
 
+    def canTransform(self, listener):
+        '''
+        Checks if the transform exists in the TF tree
+
+        Parameters
+        ----------
+        listener: tf.TransformListener
+            listener object used to read the position and orientation
+        '''
+        return listener.canTransform(self.parent, self.child, rospy.Time())
+
     def matrix(self):
         '''
         Converts the position/quaterion pair into a 4x4 transformation matrix

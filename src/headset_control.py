@@ -125,6 +125,7 @@ class HeadsetControl():
                 rospy.loginfo('[{0}]: {1:0.3f}, {2:0.3f}'.format(rospy.get_name(), self.angle_setpoints['HeadYaw']-self.yaw_offset, self.calibration_average))
 
         self.yaw_offset = -self.calibration_average
+        rospy.set_param('~yaw_offset', self.yaw_offset)
         rospy.loginfo('[{0}]: New yaw offset calibration: {1}'.format(rospy.get_name(), self.yaw_offset))
 
 

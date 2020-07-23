@@ -19,6 +19,24 @@ import tf
 class VRController():
     def __init__(self):
         #======================================================================#
+        # Create Pepper Model for Inverse Kinematics
+        #======================================================================#
+        # Set Joints
+        self.joint_names = ['LShoulderPitch', 'LShoulderRoll', 'LElbowYaw', 'LElbowRoll', 'LWristYaw', 'RShoulderPitch', 'RShoulderRoll', 'RElbowYaw', 'RElbowRoll', 'RWristYaw']
+        self.joint_names_left = self.joint_names[0:5]
+        self.joint_names_right = self.joint_names[5:10]
+        self.angle_setpoints = {}
+        for key in self.joint_names:
+            self.angle_setpoints[key] = 0.0
+
+        # Set bounds for optimization
+        self.bounds_left = [(-2.0857, 2.0857), (0.0087, 1.5620), (-2.0857, 2.0857),  (-1.5620, -0.0087), (-1.8239, 1.8239)]
+        self.bounds_right = [(-2.0857, 2.0857), (-1.5620, -0.0087), (-2.0857, 2.0857), (0.0087, 1.5620), (-1.8239, 1.8239)]
+
+        # Pepper Model Object
+        self.pepper_model = PepperModel()
+
+        #======================================================================#
         # ROS Setup
         #======================================================================#
         #===== Start Node =====#
@@ -42,7 +60,7 @@ class VRController():
         self.fixed_frame = rospy.get_param('~fixed_frame', 'world')
         # Sets the joint speed of the arms
         self.fraction_max_arm_speed = rospy.get_param('~speed_fraction', 0.1)
-        self.calibration_time = rospy.get_param('~calibration_time', 3.0)
+        self.calibration_time = rospy.get_param('~calibration_time', 1.0)
         self.yaw_offset = rospy.get_param('/headset_control/yaw_offset', None)
         if self.yaw_offset is None:
             rospy.loginfo('[{0}]: No yaw_offset parameter found at "/headset_control/yaw_offset". Using value set at "{0}/yaw_offset"'.format(rospy.get_name()))
@@ -82,10 +100,6 @@ class VRController():
         # The initial orientation for the controllers are x: right, y: up, z:
         # backwards. Needed orientation is x: forward, y: left, z: up.
         self.controller_rotation = tf.transformations.quaternion_from_euler(0., math.pi/2, -math.pi/2, 'rzyx')
-
-        # DEBUG: Test pose for controllers
-        self.left_test_pose = Transform([0.7, 0.3, 1.2], [-0.7427013, 0.3067963, 0.5663613, 0.1830457], 'world_rotated', 'LHand_C')
-        self.right_test_pose = Transform([0.8, -0.3, 1.5], [0.771698, 0.3556943, -0.5155794, 0.1101889], 'world_rotated', 'RHand_C')
 
         #===== Yaw_offset calibration =====#
         # This rotation is applied to the controllers to rotate them about the
@@ -128,22 +142,22 @@ class VRController():
             self.rate.sleep()
 
         #======================================================================#
-        # Create Pepper Model for Inverse Kinematics
+        # Debugging Frames
         #======================================================================#
-        # Set Joints
-        self.joint_names = ['LShoulderPitch', 'LShoulderRoll', 'LElbowYaw', 'LElbowRoll', 'LWristYaw', 'RShoulderPitch', 'RShoulderRoll', 'RElbowYaw', 'RElbowRoll', 'RWristYaw']
-        self.joint_names_left = self.joint_names[0:5]
-        self.joint_names_right = self.joint_names[5:10]
-        self.angle_setpoints = {}
-        for key in self.joint_names:
-            self.angle_setpoints[key] = 0.0
+        # Transform to link Pepper's base_link to the world frame
+        self.base_link = Transform([0., 0., 0.82], [0., 0., 0., 1.], 'world_rotated', 'base_link_V')
 
-        # Set bounds for optimization
-        self.bounds_left = [(-2.0857, 2.0857), (0.0087, 1.5620), (-2.0857, 2.0857),  (-1.5620, -0.0087), (-1.8239, 1.8239)]
-        self.bounds_right = [(-2.0857, 2.0857), (-1.5620, -0.0087), (-2.0857, 2.0857), (0.0087, 1.5620), (-1.8239, 1.8239)]
+        # DEBUG: Test pose for controllers
+        self.left_test_pose = Transform([0.7, 0.3, 1.2], [-0.7427013, 0.3067963, 0.5663613, 0.1830457], 'world_rotated', 'LHand_C')
+        self.right_test_pose = Transform([0.8, -0.3, 1.5], [0.771698, 0.3556943, -0.5155794, 0.1101889], 'world_rotated', 'RHand_C')
 
-        # Pepper Model Object
-        self.pepper_model = PepperModel()
+        # Display the origin and setpoint for human and pepper
+        self.pepper_left_origin = Transform(self.pepper_model.left_hand_origin, [0., 0., 0., 1.], 'base_link_V', 'LOrigin_P')
+        self.pepper_right_origin = Transform(self.pepper_model.right_hand_origin, [0., 0., 0., 1.], 'base_link_V', 'ROrigin_P')
+        self.pepper_left_setpoint = Transform([0., 0., 0.], [0., 0., 0., 1.], 'base_link_V', 'LSetpoint_P')
+        self.pepper_right_setpoint = Transform([0., 0., 0.], [0., 0., 0., 1.], 'base_link_V', 'RSetpoint_P')
+        self.human_left_origin = Transform(self.left_controller_origin, [0., 0., 0., 1.], 'world_rotated', 'LOrigin_H')
+        self.human_right_origin = Transform(self.right_controller_origin, [0., 0., 0., 1.], 'world_rotated', 'ROrigin_H')
 
     def spin(self):
         while not rospy.is_shutdown():
@@ -161,7 +175,8 @@ class VRController():
 
             # DEBUG: publish transforms for visualization
             self.broadcastRotatedTransforms()
-            self.pepper_model.broadcastTransform(self.tfBroadcaster)
+            self.broadcastDebugTransforms()
+            self.pepper_model.broadcastTransforms(self.tfBroadcaster)
 
             self.rate.sleep()
 
@@ -172,8 +187,11 @@ class VRController():
         '''
         #===== Perform inverse kinematics optimization for left arm =====#
         # Calculate desired setpoint
-        left_controller_relative = np.array(self.left_controller_relative.position) - np.array(self.left_controller_origin)
+        left_controller_relative = np.array(self.left_controller_rotated.position) - np.array(self.left_controller_origin)
         left_pepper_setpoint = (self.arm_ratio*left_controller_relative) + self.pepper_model.left_hand_origin
+
+        # DEBUG: update setpoint transform
+        self.pepper_left_setpoint.position = list(left_pepper_setpoint)
 
         # Set initial condition (current joint configuration)
         x0_left = [self.angle_setpoints[key] for key in self.joint_names_left]
@@ -183,8 +201,11 @@ class VRController():
 
         #===== Perform inverse kinematics optimization for right arm =====#
         # Calculate desired setpoint
-        right_controller_relative = np.array(self.right_controller_relative.position) - np.array(self.right_controller_origin)
+        right_controller_relative = np.array(self.right_controller_rotated.position) - np.array(self.right_controller_origin)
         right_pepper_setpoint = (self.arm_ratio*right_controller_relative) + self.pepper_model.right_hand_origin
+
+        # DEBUG: update setpoint transform
+        self.pepper_right_setpoint.position = list(right_pepper_setpoint)
 
         # Set initial condition (current joint configuration)
         x0_right = [self.angle_setpoints[key] for key in self.joint_names_right]
@@ -259,10 +280,10 @@ class VRController():
         '''
         Reads the current states of the controllers.
         '''
-        if self.left_controller.canTransform():
+        if self.left_controller.canTransform(self.tfListener):
             # Read the controller transforms
-            self.left_controller.listen()
-            self.right_controller.listen()
+            self.left_controller.listen(self.tfListener)
+            self.right_controller.listen(self.tfListener)
 
             # Convert to proper orientation (X: forward, Y: left, Z: up)
             self.left_controller_rotated.position = self.left_controller.position
@@ -287,6 +308,18 @@ class VRController():
         '''
         self.left_controller_rotated.broadcast(self.tfBroadcaster)
         self.right_controller_rotated.broadcast(self.tfBroadcaster)
+
+    def broadcastDebugTransforms(self):
+        '''
+        Broadcasts the frames used for debugging with rviz.
+        '''
+        self.base_link.broadcast(self.tfBroadcaster)
+        self.pepper_left_origin.broadcast(self.tfBroadcaster)
+        self.pepper_right_origin.broadcast(self.tfBroadcaster)
+        self.pepper_left_setpoint.broadcast(self.tfBroadcaster)
+        self.pepper_right_setpoint.broadcast(self.tfBroadcaster)
+        self.human_left_origin.broadcast(self.tfBroadcaster)
+        self.human_right_origin.broadcast(self.tfBroadcaster)
 
     def publishJointAnglesCommand(self):
         '''
@@ -359,23 +392,32 @@ class VRController():
         #===== Calibration Loop =====#
         n = 0
         while (rospy.get_time() - calibration_start) < self.calibration_time:
-            try:
-                self.tfListener.waitForTransform('world_rotated', self.left_name, rospy.Time(), rospy.Duration.from_sec(1.0))
-                self.left_controller_origin, _ = self.tfListener.lookupTransform('world_rotated', self.left_name, rospy.Time())
-                self.tfListener.waitForTransform('world_rotated', self.right_name, rospy.Time(), rospy.Duration.from_sec(1.0))
-                self.right_controller_origin, _ = self.tfListener.lookupTransform('world_rotated', self.right_name, rospy.Time())
-            except tf.Exception as err:
-                rospy.logwarn('[{0}]: TF Error: {1}'.format(rospy.get_name(), err))
+            # 'world_rotated' frame needs to be broadcast
+            self.world_rotated.broadcast(self.tfBroadcaster)
 
-            left_controller_average = (n*left_controller_average + self.left_controller_origin)/(n+1)
-            right_controller_average = (n*right_controller_average + self.right_controller_origin   q)/(n+1)
+            # Get controller positions
+            self.left_controller.listen(self.tfListener)
+            self.right_controller.listen(self.tfListener)
 
+            # Calculate average
+            left_controller_average = (n*left_controller_average + self.left_controller.position)/(n+1)
+            right_controller_average = (n*right_controller_average + self.right_controller.position)/(n+1)
+
+            # Iterate on average
             n += 1
 
         self.left_controller_origin = list(left_controller_average)
         self.right_controller_origin = list(right_controller_average)
         rospy.loginfo('[{0}]: Left controller origin: [{1}, {2}, {3}]'.format(rospy.get_name(), self.left_controller_origin[0], self.left_controller_origin[1], self.left_controller_origin[2]))
         rospy.loginfo('[{0}]: Right controller origin: [{1}, {2}, {3}]'.format(rospy.get_name(), self.right_controller_origin[0], self.right_controller_origin[1], self.right_controller_origin[2]))
+
+        # DEBUG: update debug transforms
+        try:
+            self.human_left_origin.position = self.left_controller_origin
+            self.human_right_origin.position = self.right_controller_origin
+        except AttributeError:
+            # No value exists, skip assignment
+            pass
 
         self.position_calibration = True
         self.running_calibration = False

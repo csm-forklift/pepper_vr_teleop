@@ -30,8 +30,10 @@ class VRController():
             self.angle_setpoints[key] = 0.0
 
         # Set bounds for optimization
-        self.bounds_left = [(-2.0857, 2.0857), (0.0087, 1.5620), (-2.0857, 2.0857),  (-1.5620, -0.0087), (-1.8239, 1.8239)]
-        self.bounds_right = [(-2.0857, 2.0857), (-1.5620, -0.0087), (-2.0857, 2.0857), (0.0087, 1.5620), (-1.8239, 1.8239)]
+        self.bounds_left = [(-2.0857, 2.0857), (0.0087, 1.5620), (-2.0857, 2.0857),  (-1.5620, -0.0087)]
+        self.bounds_left_wrist = [(-1.8239, 1.8239)]
+        self.bounds_right = [(-2.0857, 2.0857), (-1.5620, -0.0087), (-2.0857, 2.0857), (0.0087, 1.5620)]
+        self.bounds_right_wrist = [(-1.8239, 1.8239)]
 
         # Pepper Model Object
         self.pepper_model = PepperModel()
@@ -70,7 +72,7 @@ class VRController():
             # desired here, so the value must be flipped.
             self.yaw_offset *= -1
         # Error weights used in the optimization
-        self.position_weight = rospy.get_param('~position_weight', 1.0)
+        self.position_weight = rospy.get_param('~position_weight', 100.0)
         self.orientation_weight = rospy.get_param('~orientation_weight', 1.0)
 
         #=====- TF Listener and Broadcaster =====#
@@ -189,37 +191,62 @@ class VRController():
         # Calculate desired setpoint
         left_controller_relative = np.array(self.left_controller_rotated.position) - np.array(self.left_controller_origin)
         left_pepper_setpoint = (self.arm_ratio*left_controller_relative) + self.pepper_model.left_hand_origin
+        left_rotation = tf.transformations.quaternion_matrix(self.left_controller_rotated.quaternion)[0:3,0:3]
 
         # DEBUG: update setpoint transform
         self.pepper_left_setpoint.position = list(left_pepper_setpoint)
 
         # Set initial condition (current joint configuration)
-        x0_left = [self.angle_setpoints[key] for key in self.joint_names_left]
+        x0_left = [self.angle_setpoints[key] for key in self.joint_names_left[0:-1]]
 
         # Run optimization
-        res_left = minimize(self.objective, x0_left, args=(left_pepper_setpoint, 'L'), method='SLSQP', bounds=self.bounds_left)
+        res_left = minimize(self.objective, x0_left, args=(left_pepper_setpoint, left_rotation, 'L'), method='L-BFGS-B', bounds=self.bounds_left)
 
         #===== Perform inverse kinematics optimization for right arm =====#
         # Calculate desired setpoint
         right_controller_relative = np.array(self.right_controller_rotated.position) - np.array(self.right_controller_origin)
         right_pepper_setpoint = (self.arm_ratio*right_controller_relative) + self.pepper_model.right_hand_origin
+        right_rotation = tf.transformations.quaternion_matrix(self.right_controller_rotated.quaternion)[0:3,0:3]
 
         # DEBUG: update setpoint transform
         self.pepper_right_setpoint.position = list(right_pepper_setpoint)
 
         # Set initial condition (current joint configuration)
-        x0_right = [self.angle_setpoints[key] for key in self.joint_names_right]
+        x0_right = [self.angle_setpoints[key] for key in self.joint_names_right[0:-1]]
 
         # Run optimization
-        res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, 'R'), method='SLSQP', bounds=self.bounds_right)
+        res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation, 'R'), method='L-BFGS-B', bounds=self.bounds_right)
+
+        # FIXME: vvv testing calculation values vvv
+        # Update hand position
+        self.pepper_model.setTransformsLeft(np.append(res_left.x, 0.))
+        left_transform = self.pepper_model.getLeftHandTransform()
+
+        # Calculate position error
+        left_position = left_transform[0:3,3]
+        left_error = left_pepper_setpoint - left_position
+        position_error = np.sum(left_error**2)
+
+        # Calculate orientation error
+        left_x_axis = left_transform[0:3,0]
+        controller_x_axis = left_rotation[0:3,0]
+
+        orientation_error = np.arccos(left_x_axis.dot(controller_x_axis))/np.pi
+
+        if not res_left.success:
+            print('Dot product: {0}'.format(left_x_axis.dot(controller_x_axis)))
+
+        #print('Position Error: {0}'.format(position_error))
+        #print('Orientation Error: {0}'.format(orientation_error))
+        # FIXME: ^^^ testing calculation values ^^^
 
         # Set joint angles
-        for i in range(len(self.joint_names_left)):
+        for i in range(len(self.joint_names_left[0:-1])):
             self.angle_setpoints[self.joint_names_left[i]] = res_left.x[i]
-        for i in range(len(self.joint_names_right)):
+        for i in range(len(self.joint_names_right[0:-1])):
             self.angle_setpoints[self.joint_names_right[i]] = res_right.x[i]
 
-    def objective(self, x, setpoint, hand):
+    def objective(self, x, setpoint, rotation, hand):
         '''
         Objective function for the optimization.
 
@@ -227,9 +254,11 @@ class VRController():
         ----------
         x: list of float
             Array of joint angles in the following order [ShoulderPitch,
-            ShoulderRoll, ElbowYaw, ElbowRoll, WristYaw].
+            ShoulderRoll, ElbowYaw, ElbowRoll].
         setpoint: numpy array
             The desired [x,y,z] relative position for Pepper's hand.
+        rotation: numpy array
+            3x3 numpy array containing the controller's rotation matrix.
         hand: {'L', 'R'}
             The side to perform the optimization on.
 
@@ -239,7 +268,7 @@ class VRController():
             The cost of the optimization objective, a weighted sum of errors.
         '''
         #===== Check Inputs =====#
-        if not (len(x) == 5):
+        if not (len(x) == 4):
             raise ValueError('The objective input must be a numpy array of length 5')
         if hand not in ['L', 'R']:
             raise ValueError('Invalid hand type: {0}, must be "L" or "R"'.format(hand))
@@ -250,7 +279,8 @@ class VRController():
         #===== Left Arm =====#
         if hand == 'L':
             # Update hand position
-            self.pepper_model.setTransformsLeft(x)
+            # Expand the joint angles to include the WristYaw as 0
+            self.pepper_model.setTransformsLeft(np.append(x, 0.))
             left_transform = self.pepper_model.getLeftHandTransform()
 
             # Calculate position error
@@ -259,10 +289,20 @@ class VRController():
             position_error = np.sum(left_error**2)
 
             # Calculate orientation error
+            left_x_axis = left_transform[0:3,0]
+            controller_x_axis = rotation[0:3,0]
+
+            # Scaled by 1/pi, so being off by pi is equivalent to being off by 1
+            # meter in position.
+            try:
+                orientation_error = np.arccos(left_x_axis.dot(controller_x_axis))/np.pi
+            except RuntimeWarning:
+                print('L Dot product: {0}'.format(left_x_axis.dot(controller_x_axis)))
         #===== Right Arm =====#
         else:
             # Update hand position
-            self.pepper_model.setTransformsRight(x)
+            # Expand the joint angles to include the WristYaw as 0
+            self.pepper_model.setTransformsRight(np.append(x, 0.))
             right_transform = self.pepper_model.getRightHandTransform()
 
             # Calculate position error
@@ -271,6 +311,15 @@ class VRController():
             position_error = np.sum(right_error**2)
 
             # Calculate orientation error
+            right_x_axis = right_transform[0:3,0]
+            controller_x_axis = rotation[0:3,0]
+
+            # Scaled by 1/pi, so being off by pi is equivalent to being off by 1
+            # meter in position
+            try:
+                orientation_error = np.arccos(right_x_axis.dot(controller_x_axis))/np.pi
+            except RuntimeWarning:
+                print('R Dot product: {0}'.format(right_x_axis.dot(controller_x_axis)))
 
         cost = self.position_weight*position_error + self.orientation_weight*orientation_error
 

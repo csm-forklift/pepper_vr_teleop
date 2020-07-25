@@ -200,7 +200,7 @@ class VRController():
         x0_left = [self.angle_setpoints[key] for key in self.joint_names_left[0:-1]]
 
         # Run optimization
-        res_left = minimize(self.objective, x0_left, args=(left_pepper_setpoint, left_rotation, 'L'), method='L-BFGS-B', bounds=self.bounds_left)
+        res_left = minimize(self.objective, x0_left, args=(left_pepper_setpoint, left_rotation[0:3,0], 'L'), method='L-BFGS-B', bounds=self.bounds_left)
 
         #===== Perform inverse kinematics optimization for right arm =====#
         # Calculate desired setpoint
@@ -215,7 +215,7 @@ class VRController():
         x0_right = [self.angle_setpoints[key] for key in self.joint_names_right[0:-1]]
 
         # Run optimization
-        res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation, 'R'), method='L-BFGS-B', bounds=self.bounds_right)
+        res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation[0:3,0], 'R'), method='L-BFGS-B', bounds=self.bounds_right)
 
         # FIXME: vvv testing calculation values vvv
         # Update hand position
@@ -246,7 +246,7 @@ class VRController():
         for i in range(len(self.joint_names_right[0:-1])):
             self.angle_setpoints[self.joint_names_right[i]] = res_right.x[i]
 
-    def objective(self, x, setpoint, rotation, hand):
+    def objective(self, x, setpoint, controller_x_axis, hand):
         '''
         Objective function for the optimization.
 
@@ -257,8 +257,8 @@ class VRController():
             ShoulderRoll, ElbowYaw, ElbowRoll].
         setpoint: numpy array
             The desired [x,y,z] relative position for Pepper's hand.
-        rotation: numpy array
-            3x3 numpy array containing the controller's rotation matrix.
+        controller_x_axis: numpy array
+            (3,) numpy array containing the controller's X axis vector.
         hand: {'L', 'R'}
             The side to perform the optimization on.
 
@@ -290,7 +290,6 @@ class VRController():
 
             # Calculate orientation error
             left_x_axis = left_transform[0:3,0]
-            controller_x_axis = rotation[0:3,0]
 
             # Scaled by 1/pi, so being off by pi is equivalent to being off by 1
             # meter in position.
@@ -312,7 +311,6 @@ class VRController():
 
             # Calculate orientation error
             right_x_axis = right_transform[0:3,0]
-            controller_x_axis = rotation[0:3,0]
 
             # Scaled by 1/pi, so being off by pi is equivalent to being off by 1
             # meter in position

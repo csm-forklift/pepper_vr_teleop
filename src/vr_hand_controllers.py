@@ -169,6 +169,9 @@ class VRController():
             # Update the controller transforms
             self.readTransforms()
 
+            self.speedTest()
+            break
+
             # Find joint angles using optimization
             self.calculateJointAngles()
 
@@ -181,6 +184,26 @@ class VRController():
             self.pepper_model.broadcastTransforms(self.tfBroadcaster)
 
             self.rate.sleep()
+
+    def speedTest(self):
+        '''
+        Runs the optimization multiple times and finds and average speed.
+        '''
+        n = 100
+        x = np.zeros(n+1)
+        x[0] = rospy.get_time()
+        for i in range(1,n+1):
+            self.left_controller_rotated.position = list(np.random.rand(3))
+            self.right_controller_rotated.position = list(np.random.rand(3))
+            self.calculateJointAngles()
+            x[i] = rospy.get_time()
+
+        sum_time = 0.0
+        for i in range(1,n+1):
+            sum_time = sum_time + (x[i] - x[i-1])
+        avg_time = sum_time / n
+
+        print('Ran optimization {0} times.\n Average speed: {1:0.6f} sec'.format(n, avg_time))
 
     def calculateJointAngles(self):
         '''
@@ -341,10 +364,11 @@ class VRController():
         #======================================================================#
         # DEBUG: Test pose values
         #======================================================================#
-        # self.left_controller.position = self.left_test_pose.position
-        # self.left_controller.quaternion = self.left_test_pose.quaternion
-        # self.right_controller.position = self.right_test_pose.position
-        # self.right_controller.quaternion = self.right_test_pose.quaternion
+        else:
+            self.left_controller.position = self.left_test_pose.position
+            self.left_controller.quaternion = self.left_test_pose.quaternion
+            self.right_controller.position = self.right_test_pose.position
+            self.right_controller.quaternion = self.right_test_pose.quaternion
         #======================================================================#
         # DEBUG: Test pose values
         #======================================================================#

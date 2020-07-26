@@ -35,6 +35,13 @@ class VRController():
         self.bounds_right = [(-2.0857, 2.0857), (-1.5620, -0.0087), (-2.0857, 2.0857), (0.0087, 1.5620)]
         self.bounds_right_wrist = [(-1.8239, 1.8239)]
 
+        # These are the standard poses used for starting the optimization
+        self.standard_poses = np.array([
+            [-self.bounds_left[0][0], 0.0, -np.pi/2.0, -np.pi/4.0, 0.0, -self.bounds_right[0][0], 0.0, np.pi/2.0, np.pi/4.0, 0.0],
+            [np.pi/2.0, np.pi/2.0, -np.pi/2.0, -0.3, 0.0, np.pi/2.0, -np.pi/2.0, np.pi/2.0, 0.3, 0.0],
+            [0.2, 0.2, -1.0, -0.4, 0.0, 0.2, -0.2, 1.0, 0.4, 0.0]
+            ])
+
         # Pepper Model Object
         self.pepper_model = PepperModel()
 
@@ -125,8 +132,8 @@ class VRController():
             # Wait for user to press the side button and for calibration to
             # complete
             self.orientation_calibration = False
-            while not self.orientation_calibration:
-                self.rate.sleep()
+            # while not self.orientation_calibration:
+            #     self.rate.sleep()
 
         # Publish the new 'world_rotated' frame
         self.world_rotated.broadcast(self.tfBroadcaster)
@@ -140,8 +147,8 @@ class VRController():
 
         # Wait for user to press the side button and for calibration to complete
         self.position_calibration = False
-        while not self.position_calibration:
-            self.rate.sleep()
+        # while not self.position_calibration:
+        #     self.rate.sleep()
 
         #======================================================================#
         # Debugging Frames
@@ -166,22 +173,21 @@ class VRController():
             # Publish the rotated fixed frame
             self.world_rotated.broadcast(self.tfBroadcaster)
 
-            # Update the controller transforms
-            self.readTransforms()
+            self.poseTest()
 
-            self.speedTest()
-            break
-
-            # Find joint angles using optimization
-            self.calculateJointAngles()
-
-            # Publish joint angles to Pepper
-            self.publishJointAnglesCommand()
-
-            # DEBUG: publish transforms for visualization
-            self.broadcastRotatedTransforms()
-            self.broadcastDebugTransforms()
-            self.pepper_model.broadcastTransforms(self.tfBroadcaster)
+            # # Update the controller transforms
+            # self.readTransforms()
+            #
+            # # Find joint angles using optimization
+            # self.calculateJointAngles()
+            #
+            # # Publish joint angles to Pepper
+            # self.publishJointAnglesCommand()
+            #
+            # # DEBUG: publish transforms for visualization
+            # self.broadcastRotatedTransforms()
+            # self.broadcastDebugTransforms()
+            # self.pepper_model.broadcastTransforms(self.tfBroadcaster)
 
             self.rate.sleep()
 
@@ -205,11 +211,35 @@ class VRController():
 
         print('Ran optimization {0} times.\n Average speed: {1:0.6f} sec'.format(n, avg_time))
 
+    def poseTest(self):
+        '''
+        Puts the robot model in a specificy pose to test what the joint angles
+        will produce.
+        '''
+        # Set joint angles
+        self.angle_setpoints['LShoulderPitch'] = 0.2
+        self.angle_setpoints['LShoulderRoll'] = 0.2
+        self.angle_setpoints['LElbowYaw'] = -1.0
+        self.angle_setpoints['LElbowRoll'] = -0.4
+        self.angle_setpoints['LWristYaw'] = 0.0
+        self.angle_setpoints['RShoulderPitch'] = 0.2
+        self.angle_setpoints['RShoulderRoll'] = -0.2
+        self.angle_setpoints['RElbowYaw'] = 1.0
+        self.angle_setpoints['RElbowRoll'] = 0.4
+        self.angle_setpoints['RWristYaw'] = 0.0
+
+        # Set Pepper model angles
+        self.pepper_model.setTransforms([self.angle_setpoints[key] for key in self.joint_names])
+        self.pepper_model.broadcastTransforms(self.tfBroadcaster)
+
     def calculateJointAngles(self):
         '''
         Calculates the joint angles for the desired position using the
         optimizer.
         '''
+        #===== Optimization Paramters =====#
+        opt_method = 'L-BFGS-B'
+
         #===== Perform inverse kinematics optimization for left arm =====#
         # Calculate desired setpoint
         left_controller_relative = np.array(self.left_controller_rotated.position) - np.array(self.left_controller_origin)
@@ -219,11 +249,26 @@ class VRController():
         # DEBUG: update setpoint transform
         self.pepper_left_setpoint.position = list(left_pepper_setpoint)
 
-        # Set initial condition (current joint configuration)
-        x0_left = [self.angle_setpoints[key] for key in self.joint_names_left[0:-1]]
+        #--- Perform Optimization over loop with different starting points
+        # Use the 3 standard poses and the current pose.
+        # Take the angles from the lowest cost.
+        self.initial_poses = np.append(self.standard_poses, [np.array([self.angle_setpoints[key] for key in self.joint_names])], axis=0)
+        num_poses = self.initial_poses.shape[0]
+        costs = np.zeros(num_poses)
+        angles = np.zeros(num_poses)
+        successes = np.zeros(num_poses)
 
-        # Run optimization
-        res_left = minimize(self.objective, x0_left, args=(left_pepper_setpoint, left_rotation[0:3,0], 'L'), method='L-BFGS-B', bounds=self.bounds_left)
+        for i in range(num_poses):
+            # Current Pose
+            # Set initial condition (current joint configuration)
+            x0_left = self.initial_poses[i,0:4]
+
+            # Run optimization
+            res_left = minimize(self.objective, x0_left, args=(left_pepper_setpoint, left_rotation[0:3,0], 'L'), method=opt_method, bounds=self.bounds_left)
+
+            costs[i] = res_left.fval
+            angles[i] = res_left.x
+            successes = res_left.success
 
         #===== Perform inverse kinematics optimization for right arm =====#
         # Calculate desired setpoint
@@ -238,7 +283,7 @@ class VRController():
         x0_right = [self.angle_setpoints[key] for key in self.joint_names_right[0:-1]]
 
         # Run optimization
-        res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation[0:3,0], 'R'), method='L-BFGS-B', bounds=self.bounds_right)
+        res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation[0:3,0], 'R'), method=opt_method, bounds=self.bounds_right)
 
         # FIXME: vvv testing calculation values vvv
         # Update hand position

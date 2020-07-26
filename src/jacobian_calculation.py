@@ -57,10 +57,15 @@ bsx, bsy, bsz = sp.symbols('bsx bsy bsz')
 sex, sey, sez = sp.symbols('sex sey sez')
 ewx, ewy, ewz = sp.symbols('ewx ewy ewz')
 whx, why, whz = sp.symbols('whx why whz')
+# d_bs = sp.Matrix([bsx, bsy, bsz])
+# d_se = sp.Matrix([sex, sey, sez])
+# d_ew = sp.Matrix([ewx, ewy, ewz])
+# d_wh = sp.Matrix([whx, why, whz])
+# This assumes all other translations compared to the X are small
 d_bs = sp.Matrix([bsx, bsy, bsz])
-d_se = sp.Matrix([sex, sey, sez])
-d_ew = sp.Matrix([ewx, ewy, ewz])
-d_wh = sp.Matrix([whx, why, whz])
+d_se = sp.Matrix([sex, 0.0, 0.0])
+d_ew = sp.Matrix([ewx, 0.0, 0.0])
+d_wh = sp.Matrix([whx, 0.0, 0.0])
 
 # Transforms
 b_T_s = sp.zeros(4,4)
@@ -100,6 +105,12 @@ wp = sp.symbols('wp') # position
 wo = sp.symbols('wo') # orientation
 
 # Total Cost
-ct = (wp*(Pe.T*Pe))[0] + wo*(sp.acos(Rxp.T*Rxc)/sp.pi)
-
-sp.pprint(ct)
+cp = Pe.T*Pe
+co = sp.acos(Rxp.T*Rxc)/sp.pi
+ct = (wp*(cp))[0] + wo*(co)
+print('cp derivative:')
+sp.pprint(cp.diff(q))
+print('Rxp.T*Rxc:')
+sp.pprint(Rxp.T*Rxc)
+print('Rxp.T*Rxc derivative:')
+sp.pprint((Rxp.T*Rxc).diff(q))

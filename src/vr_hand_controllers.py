@@ -173,21 +173,19 @@ class VRController():
             # Publish the rotated fixed frame
             self.world_rotated.broadcast(self.tfBroadcaster)
 
-            self.poseTest()
+            # Update the controller transforms
+            self.readTransforms()
 
-            # # Update the controller transforms
-            # self.readTransforms()
-            #
-            # # Find joint angles using optimization
-            # self.calculateJointAngles()
-            #
-            # # Publish joint angles to Pepper
-            # self.publishJointAnglesCommand()
-            #
-            # # DEBUG: publish transforms for visualization
-            # self.broadcastRotatedTransforms()
-            # self.broadcastDebugTransforms()
-            # self.pepper_model.broadcastTransforms(self.tfBroadcaster)
+            # Find joint angles using optimization
+            self.calculateJointAngles()
+
+            # Publish joint angles to Pepper
+            self.publishJointAnglesCommand()
+
+            # DEBUG: publish transforms for visualization
+            self.broadcastRotatedTransforms()
+            self.broadcastDebugTransforms()
+            self.pepper_model.broadcastTransforms(self.tfBroadcaster)
 
             self.rate.sleep()
 
@@ -240,6 +238,15 @@ class VRController():
         #===== Optimization Paramters =====#
         opt_method = 'L-BFGS-B'
 
+        self.initial_poses = np.append(self.standard_poses, [np.array([self.angle_setpoints[key] for key in self.joint_names])], axis=0)
+        num_poses = self.initial_poses.shape[0]
+        left_costs = np.zeros(num_poses)
+        left_angles = np.zeros([num_poses,4])
+        left_successes = np.zeros(num_poses)
+        right_costs = np.zeros(num_poses)
+        right_angles = np.zeros([num_poses,4])
+        right_successes = np.zeros(num_poses)
+
         #===== Perform inverse kinematics optimization for left arm =====#
         # Calculate desired setpoint
         left_controller_relative = np.array(self.left_controller_rotated.position) - np.array(self.left_controller_origin)
@@ -252,23 +259,16 @@ class VRController():
         #--- Perform Optimization over loop with different starting points
         # Use the 3 standard poses and the current pose.
         # Take the angles from the lowest cost.
-        self.initial_poses = np.append(self.standard_poses, [np.array([self.angle_setpoints[key] for key in self.joint_names])], axis=0)
-        num_poses = self.initial_poses.shape[0]
-        costs = np.zeros(num_poses)
-        angles = np.zeros(num_poses)
-        successes = np.zeros(num_poses)
-
         for i in range(num_poses):
-            # Current Pose
             # Set initial condition (current joint configuration)
             x0_left = self.initial_poses[i,0:4]
 
             # Run optimization
             res_left = minimize(self.objective, x0_left, args=(left_pepper_setpoint, left_rotation[0:3,0], 'L'), method=opt_method, bounds=self.bounds_left)
 
-            costs[i] = res_left.fval
-            angles[i] = res_left.x
-            successes = res_left.success
+            left_costs[i] = res_left.fun
+            left_angles[i] = res_left.x
+            left_successes[i] = res_left.success
 
         #===== Perform inverse kinematics optimization for right arm =====#
         # Calculate desired setpoint
@@ -279,15 +279,61 @@ class VRController():
         # DEBUG: update setpoint transform
         self.pepper_right_setpoint.position = list(right_pepper_setpoint)
 
-        # Set initial condition (current joint configuration)
-        x0_right = [self.angle_setpoints[key] for key in self.joint_names_right[0:-1]]
+        #--- Perform Optimization over loop with different starting points
+        # Use the 3 standard poses and the current pose
+        # Take the angles from the lowest cost
+        for i in range(num_poses):
+            # Set initial condition (current joint configuration)
+            x0_right = self.initial_poses[i,0:4]
 
-        # Run optimization
-        res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation[0:3,0], 'R'), method=opt_method, bounds=self.bounds_right)
+            # Run optimization
+            res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation[0:3,0], 'R'), method=opt_method, bounds=self.bounds_right)
+
+            right_costs[i] = res_right.fun
+            right_angles[i] = res_right.x
+            right_successes[i] = res_right.success
+
+        #===== Evaluate the Solutions for Best Fit =====#
+        # Find lowest cost that is successful
+        left_index = 0
+        right_index = 0
+        for i in range(num_poses):
+            left_index = np.argmin(left_costs)
+            if (left_successes[left_index] == False):
+                # Optimization invalid, delete row and find new option
+                left_costs = np.delete(left_costs, left_index)
+                left_angles = np.delete(left_angles, left_index, axis=0)
+                left_successes = np.delete(left_successes, left_index)
+            else:
+                break
+
+        for i in range(num_poses):
+            right_index = np.argmin(right_costs)
+            if (right_successes[right_index] == False):
+                # Optimization invalid, delete row and find new option
+                right_costs = np.delete(right_costs, right_index)
+                right_angles = np.delete(right_angles, right_index, axis=0)
+                right_successes = np.delete(right_successes, right_index)
+            else:
+                break
+
+        #===== Set Joint Angles =====#
+        # (if the array isze is 0 there were no successful optimzations, then
+        # use the previous angles)
+        if left_angles.shape[0] is not 0:
+            for i in range(len(self.joint_names_left[0:-1])):
+                self.angle_setpoints[self.joint_names_left[i]] = left_angles[left_index][i]
+        else:
+            rospy.logwarn('[{0}]: Left optimization failed.'.format(rospy.get_name()))
+        if right_angles.shape[0] is not 0:
+            for i in range(len(self.joint_names_right[0:-1])):
+                self.angle_setpoints[self.joint_names_right[i]] = right_angles[right_index][i]
+        else:
+            rospy.logwarn('[{0}]: Right optimization failed.'.format(rospy.get_name()))
 
         # FIXME: vvv testing calculation values vvv
         # Update hand position
-        self.pepper_model.setTransformsLeft(np.append(res_left.x, 0.))
+        self.pepper_model.setTransformsLeft(np.append([self.angle_setpoints[key] for key in self.joint_names_left], 0.))
         left_transform = self.pepper_model.getLeftHandTransform()
 
         # Calculate position error
@@ -301,18 +347,9 @@ class VRController():
 
         orientation_error = np.arccos(left_x_axis.dot(controller_x_axis))/np.pi
 
-        if not res_left.success:
-            print('Dot product: {0}'.format(left_x_axis.dot(controller_x_axis)))
-
         #print('Position Error: {0}'.format(position_error))
         #print('Orientation Error: {0}'.format(orientation_error))
         # FIXME: ^^^ testing calculation values ^^^
-
-        # Set joint angles
-        for i in range(len(self.joint_names_left[0:-1])):
-            self.angle_setpoints[self.joint_names_left[i]] = res_left.x[i]
-        for i in range(len(self.joint_names_right[0:-1])):
-            self.angle_setpoints[self.joint_names_right[i]] = res_right.x[i]
 
     def objective(self, x, setpoint, controller_x_axis, hand):
         '''

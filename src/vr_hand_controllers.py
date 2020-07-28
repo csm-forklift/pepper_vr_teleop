@@ -132,23 +132,23 @@ class VRController():
             # Wait for user to press the side button and for calibration to
             # complete
             self.orientation_calibration = False
-            # while not self.orientation_calibration:
-            #     self.rate.sleep()
+            while not self.orientation_calibration:
+                self.rate.sleep()
 
         # Publish the new 'world_rotated' frame
         self.world_rotated.broadcast(self.tfBroadcaster)
 
         #===== Hand Origin Calibration =====#
         # Controller Origin
-        self.left_controller_origin = [0, 0, 0]
-        self.right_controller_origin = [0, 0, 0]
+        self.left_controller_origin = [0., 0., 0.]
+        self.right_controller_origin = [0., 0., 0.]
         print('\n{0}\n{1}{2}\n{0}'.format(60*'=', 16*' ', 'Position Calibration'))
         print('Point arms straight towards the ground. Press the side button on the RIGHT controller and hold position for {0} seconds.'.format(self.calibration_time))
 
         # Wait for user to press the side button and for calibration to complete
         self.position_calibration = False
-        # while not self.position_calibration:
-        #     self.rate.sleep()
+        while not self.position_calibration:
+            self.rate.sleep()
 
         #======================================================================#
         # Debugging Frames
@@ -236,9 +236,10 @@ class VRController():
         optimizer.
         '''
         #===== Optimization Paramters =====#
-        opt_method = 'L-BFGS-B'
+        opt_method = 'SLSQP'
 
-        self.initial_poses = np.append(self.standard_poses, [np.array([self.angle_setpoints[key] for key in self.joint_names])], axis=0)
+        #self.initial_poses = np.append(self.standard_poses, [np.array([self.angle_setpoints[key] for key in self.joint_names])], axis=0)
+        self.initial_poses = np.array([np.array([self.angle_setpoints[key] for key in self.joint_names])])
         num_poses = self.initial_poses.shape[0]
         left_costs = np.zeros(num_poses)
         left_angles = np.zeros([num_poses,4])
@@ -284,7 +285,7 @@ class VRController():
         # Take the angles from the lowest cost
         for i in range(num_poses):
             # Set initial condition (current joint configuration)
-            x0_right = self.initial_poses[i,0:4]
+            x0_right = self.initial_poses[i,5:9]
 
             # Run optimization
             res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation[0:3,0], 'R'), method=opt_method, bounds=self.bounds_right)
@@ -333,22 +334,34 @@ class VRController():
 
         # FIXME: vvv testing calculation values vvv
         # Update hand position
-        self.pepper_model.setTransformsLeft(np.append([self.angle_setpoints[key] for key in self.joint_names_left], 0.))
+        self.pepper_model.setTransforms(np.array([self.angle_setpoints[key] for key in self.joint_names]))
         left_transform = self.pepper_model.getLeftHandTransform()
 
         # Calculate position error
         left_position = left_transform[0:3,3]
         left_error = left_pepper_setpoint - left_position
-        position_error = np.sum(left_error**2)
+        left_position_error = np.sum(left_error**2)
 
         # Calculate orientation error
         left_x_axis = left_transform[0:3,0]
-        controller_x_axis = left_rotation[0:3,0]
+        left_controller_x_axis = left_rotation[0:3,0]
 
-        orientation_error = np.arccos(left_x_axis.dot(controller_x_axis))/np.pi
+        left_orientation_error = np.arccos(left_x_axis.dot(left_controller_x_axis))/np.pi
 
-        #print('Position Error: {0}'.format(position_error))
-        #print('Orientation Error: {0}'.format(orientation_error))
+        right_transform = self.pepper_model.getRightHandTransform()
+
+        right_position = right_transform[0:3,3]
+        right_error = right_pepper_setpoint - right_position
+        right_position_error = np.sum(right_error**2)
+
+        right_x_axis = right_transform[0:3,0]
+        right_controller_x_axis = right_rotation[0:3,0]
+
+        right_orientation_error = np.arccos(right_x_axis.dot(right_controller_x_axis))/np.pi
+
+        # print('L Position: {0}\tL Orientation: {1}'.format(left_position_error, left_orientation_error))
+        # print('R Position: {0}\tR Orientation: {1}'.format(right_position_error, right_orientation_error))
+        # print('Current angles: {0}'.format([self.angle_setpoints[key] for key in self.joint_names]))
         # FIXME: ^^^ testing calculation values ^^^
 
     def objective(self, x, setpoint, controller_x_axis, hand):
@@ -399,9 +412,12 @@ class VRController():
             # Scaled by 1/pi, so being off by pi is equivalent to being off by 1
             # meter in position.
             try:
+                if (left_x_axis.dot(controller_x_axis)) > 1.0:
+                    print("Left angle: {0}".format(left_x_axis.dot(controller_x_axis)))
                 orientation_error = np.arccos(left_x_axis.dot(controller_x_axis))/np.pi
             except RuntimeWarning:
                 print('L Dot product: {0}'.format(left_x_axis.dot(controller_x_axis)))
+
         #===== Right Arm =====#
         else:
             # Update hand position
@@ -420,6 +436,8 @@ class VRController():
             # Scaled by 1/pi, so being off by pi is equivalent to being off by 1
             # meter in position
             try:
+                if (right_x_axis.dot(controller_x_axis)) > 1.0:
+                    print("Right angle: {0}".format(right_x_axis.dot(controller_x_axis)))
                 orientation_error = np.arccos(right_x_axis.dot(controller_x_axis))/np.pi
             except RuntimeWarning:
                 print('R Dot product: {0}'.format(right_x_axis.dot(controller_x_axis)))
@@ -442,6 +460,10 @@ class VRController():
             self.left_controller_rotated.quaternion = tf.transformations.quaternion_multiply(self.left_controller.quaternion, self.controller_rotation)
             self.right_controller_rotated.position = self.right_controller.position
             self.right_controller_rotated.quaternion = tf.transformations.quaternion_multiply(self.right_controller.quaternion, self.controller_rotation)
+
+            # Update setpoint orientations to match controller's
+            self.pepper_left_setpoint.quaternion = self.left_controller_rotated.quaternion
+            self.pepper_right_setpoint.quaternion = self.right_controller_rotated.quaternion
 
         #======================================================================#
         # DEBUG: Test pose values
@@ -499,10 +521,10 @@ class VRController():
         #===== Calibration Loop =====#
         n = 0
         while (rospy.get_time() - calibration_start) < self.calibration_time:
-            left_position = [0, 0, 0]
-            left_quaternion = [0, 0, 0, 1]
-            right_position = [0, 0, 0]
-            right_quaternion = [0, 0, 0, 1]
+            left_position = [0., 0., 0.]
+            left_quaternion = [0., 0., 0., 1.]
+            right_position = [0., 0., 0.]
+            right_quaternion = [0., 0., 0., 1.]
             try:
                 self.tfListener.waitForTransform(self.fixed_frame, self.left_name, rospy.Time(), rospy.Duration.from_sec(1.0))
                 left_position, left_quaternion = self.tfListener.lookupTransform(self.fixed_frame, self.left_name, rospy.Time())

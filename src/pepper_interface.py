@@ -37,6 +37,7 @@ class PepperInterface():
         self.robot_port = rospy.get_param('~robot_port', 9559)
 
         # Locomotion
+        self.disable_external_collisions = rospy.get_param('~disable_external_collisions', False)
         self.command_duration = rospy.get_param('~command_duration', 1.0)
         self.command_start_time = 0.0
         self.x_velocity = 0.0
@@ -75,16 +76,17 @@ class PepperInterface():
             rospy.loginfo('[{0}]: subscribed to front camera ({1})'.format(rospy.get_name(), self.camera_sub))
 
         # Turn off the External Collision Detection
-        rospy.loginfo('[{0}]: Turning off external collision detection for base'.format(rospy.get_name()))
-        try:
-            self.motion_proxy.setExternalCollisionProtectionEnabled('Move', False)
-        except:
-            rospy.logwarn('[{0}]: Error turning off external collision detection for base. Base may have trouble moving if it thinks there is an obstacle nearby. Type the following URL into a web browser and check the settings to see if disabling this feature is allowed: "http://<Pepper\'s IP>/advanced/#/settings"'.format(rospy.get_name()))
-        rospy.loginfo('[{0}]: Turning off external collision detection for arms'.format(rospy.get_name()))
-        try:
-            self.motion_proxy.setExternalCollisionProtectionEnabled('Arms', False)
-        except:
-            rospy.logwarn('[{0}]: Error turning off external collision detection for the arms. The arms may have trouble moving if it thinks there is an obstacle nearby.'.format(rospy.get_name()))
+        if self.disable_external_collisions:
+            rospy.loginfo('[{0}]: Turning off external collision detection for base'.format(rospy.get_name()))
+            try:
+                self.motion_proxy.setExternalCollisionProtectionEnabled('Move', False)
+            except:
+                rospy.logwarn('[{0}]: Error turning off external collision detection for base. Base may have trouble moving if it thinks there is an obstacle nearby. Type the following URL into a web browser and check the settings to see if disabling this feature is allowed: "http://<Pepper\'s IP>/advanced/#/settings"'.format(rospy.get_name()))
+            rospy.loginfo('[{0}]: Turning off external collision detection for arms'.format(rospy.get_name()))
+            try:
+                self.motion_proxy.setExternalCollisionProtectionEnabled('Arms', False)
+            except:
+                rospy.logwarn('[{0}]: Error turning off external collision detection for the arms. The arms may have trouble moving if it thinks there is an obstacle nearby.'.format(rospy.get_name()))
 
         #--- Publishers and Subscribers
         # Publishers

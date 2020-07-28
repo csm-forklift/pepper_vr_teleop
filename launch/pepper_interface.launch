@@ -6,6 +6,7 @@
     <!-- <arg name="robot_ip" default="169.254.182.122"/> -->
     <arg name="robot_ip" default="138.67.198.34"/>
     <arg name="robot_port" default="9559"/>
+    <arg name="disable_external_collisions" default="False"/>
     
     <node name="pepper_interface" pkg="pepper_vr_teleop" type="pepper_interface.py" output="screen" unless="$(arg simulation)">
         <param name="robot_ip" value="$(arg robot_ip)"/>
@@ -13,6 +14,7 @@
         <param name="command_duration" value="1.0"/>
         <param name="use_camera" value="$(arg use_camera)"/>
         <param name="frame_rate" value="30"/>
+        <param name="disable_external_collisions" value="$(arg disable_external_collisions)"/>
     </node>
     
     <node name="simulation_interface" pkg="pepper_vr_teleop" type="simulation_interface.py" output="screen" if="$(arg simulation)">

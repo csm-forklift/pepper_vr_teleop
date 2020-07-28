@@ -137,14 +137,14 @@ class PepperModel():
         self.RWrist_to_RHand = [0.0695, 0.0, -0.03030]
 
         #===== Frame Transforms =====#
-        self.LShoulder = Transform(self.base_link_V_to_LShoulder, [0, 0, 0, 1], 'base_link_V', 'LShoulder_V')
-        self.LElbow = Transform(self.LShoulder_to_LElbow, [0, 0, 0, 1], 'LShoulder_V', 'LElbow_V')
-        self.LWrist = Transform(self.LElbow_to_LWrist, [0, 0, 0, 1], 'LElbow_V', 'LWrist_V')
-        self.LHand = Transform(self.LWrist_to_LHand, [0, 0, 0, 1], 'LWrist_V', 'LHand_V')
-        self.RShoulder = Transform(self.base_link_V_to_RShoulder, [0, 0, 0, 1], 'base_link_V', 'RShoulder_V')
-        self.RElbow = Transform(self.RShoulder_to_RElbow, [0, 0, 0, 1], 'RShoulder_V', 'RElbow_V')
-        self.RWrist = Transform(self.RElbow_to_RWrist, [0, 0, 0, 1], 'RElbow_V', 'RWrist_V')
-        self.RHand = Transform(self.RWrist_to_RHand, [0, 0, 0, 1], 'RWrist_V', 'RHand_V')
+        self.LShoulder = Transform(self.base_link_V_to_LShoulder, [0., 0., 0., 1.], 'base_link_V', 'LShoulder_V')
+        self.LElbow = Transform(self.LShoulder_to_LElbow, [0., 0., 0., 1.], 'LShoulder_V', 'LElbow_V')
+        self.LWrist = Transform(self.LElbow_to_LWrist, [0., 0., 0., 1.], 'LElbow_V', 'LWrist_V')
+        self.LHand = Transform(self.LWrist_to_LHand, [0., 0., 0., 1.], 'LWrist_V', 'LHand_V')
+        self.RShoulder = Transform(self.base_link_V_to_RShoulder, [0., 0., 0., 1.], 'base_link_V', 'RShoulder_V')
+        self.RElbow = Transform(self.RShoulder_to_RElbow, [0., 0., 0., 1.], 'RShoulder_V', 'RElbow_V')
+        self.RWrist = Transform(self.RElbow_to_RWrist, [0., 0., 0., 1.], 'RElbow_V', 'RWrist_V')
+        self.RHand = Transform(self.RWrist_to_RHand, [0., 0., 0., 1.], 'RWrist_V', 'RHand_V')
 
         #======================================================================#
         # Set Hand Origins
@@ -157,8 +157,8 @@ class PepperModel():
                 self.current_angles[key] = origin_angles[key]
         else:
             #--- Default Origin Angles ---#
-            self.current_angles['LShoulderPitch'] = np.pi/2
-            self.current_angles['RShoulderPitch'] = np.pi/2
+            self.current_angles['LShoulderPitch'] = np.pi/2.
+            self.current_angles['RShoulderPitch'] = np.pi/2.
 
         #===== Set Origins =====#
         self.updateTransforms()
@@ -230,17 +230,17 @@ class PepperModel():
         '''
         Updates the left arm transforms using the current angle configuration.
         '''
-        self.LShoulder.quaternion = tf.transformations.quaternion_from_euler(0, self.current_angles['LShoulderPitch'], self.current_angles['LShoulderRoll'], 'rxyz')
-        self.LElbow.quaternion = tf.transformations.quaternion_from_euler(self.current_angles['LElbowYaw'], 0, self.current_angles['LElbowRoll'], 'rxyz')
-        self.LWrist.quaternion = tf.transformations.quaternion_from_euler(self.current_angles['LWristYaw'], 0, 0, 'rxyz')
+        self.LShoulder.quaternion = tf.transformations.quaternion_from_euler(0., self.current_angles['LShoulderPitch'], self.current_angles['LShoulderRoll'], 'rxyz')
+        self.LElbow.quaternion = tf.transformations.quaternion_from_euler(self.current_angles['LElbowYaw'], 0., self.current_angles['LElbowRoll'], 'rxyz')
+        self.LWrist.quaternion = tf.transformations.quaternion_from_euler(self.current_angles['LWristYaw'], 0., 0., 'rxyz')
 
     def updateTransformsRight(self):
         '''
         Updates the right arm transforms using the current angle configuration.
         '''
         self.RShoulder.quaternion = tf.transformations.quaternion_from_euler(0, self.current_angles['RShoulderPitch'], self.current_angles['RShoulderRoll'], 'rxyz')
-        self.RElbow.quaternion = tf.transformations.quaternion_from_euler(self.current_angles['RElbowYaw'], 0, self.current_angles['RElbowRoll'], 'rxyz')
-        self.RWrist.quaternion = tf.transformations.quaternion_from_euler(self.current_angles['RWristYaw'], 0, 0, 'rxyz')
+        self.RElbow.quaternion = tf.transformations.quaternion_from_euler(self.current_angles['RElbowYaw'], 0., self.current_angles['RElbowRoll'], 'rxyz')
+        self.RWrist.quaternion = tf.transformations.quaternion_from_euler(self.current_angles['RWristYaw'], 0., 0., 'rxyz')
 
     def setTransformsLeft(self, joint_angles_left):
         '''

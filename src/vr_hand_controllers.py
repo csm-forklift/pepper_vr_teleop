@@ -62,6 +62,7 @@ class VRController():
         self.velocity_linear_max = rospy.get_param('~velocity_linear_max', 0.3)
         self.velocity_angular_max = rospy.get_param('~velocity_angular_max', 0.4)
         rospy.loginfo('[{0}]: Max linear velocity: {1}, Max angular velocity: {2}'.format(rospy.get_name(), self.velocity_linear_max, self.velocity_angular_max))
+        self.joystick_deadband = rospy.get_param('~joystick_deadband', 0.2)
         # Name of left controller frame from vive_ros
         self.left_name = rospy.get_param('~left_name', 'controller_LHR_FFF73D47')
         # Name of right controller frame from vive_ros
@@ -577,8 +578,14 @@ class VRController():
 
         # Joystick: controls translational velocities
         # (Y axis joystick values are flipped and must be negated)
-        self.cmd_vel_msg.linear.x = self.velocity_linear_max*msg.axes[1]
-        self.cmd_vel_msg.linear.y = -self.velocity_linear_max*msg.axes[0]
+        if abs(msg.axes[1]) > self.joystick_deadband:
+            self.cmd_vel_msg.linear.x = self.velocity_linear_max*msg.axes[1]
+        else:
+            self.cmd_vel_msg.linear.x = 0.0
+        if abs(msg.axes[0]) > self.joystick_deadband:
+            self.cmd_vel_msg.linear.y = -self.velocity_linear_max*msg.axes[0]
+        else:
+            self.cmd_vel_msg.linear.y = 0.0
         self.cmd_vel_pub.publish(self.cmd_vel_msg)
 
     def rightCallback(self, msg):
@@ -596,7 +603,10 @@ class VRController():
 
         # Joystick: controls rotational velocities
         # (Joystick axes are reversed so velocity must be negated)
-        self.cmd_vel_msg.angular.z = -self.velocity_angular_max*msg.axes[0]
+        if abs(msg.axes[0]) > self.joystick_deadband:
+            self.cmd_vel_msg.angular.z = -self.velocity_angular_max*msg.axes[0]
+        else:
+            self.cmd_vel_msg.angular.z = 0.0
         self.cmd_vel_pub.publish(self.cmd_vel_msg)
 
 if __name__ == '__main__':

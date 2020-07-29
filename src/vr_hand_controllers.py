@@ -368,7 +368,7 @@ class VRController():
         '''
         #===== Check Inputs =====#
         if not (len(x) == 4):
-            raise ValueError('The objective input must be a numpy array of length 5')
+            raise ValueError('The objective input must be a numpy array of length 4')
         if hand not in ['L', 'R']:
             raise ValueError('Invalid hand type: {0}, must be "L" or "R"'.format(hand))
 

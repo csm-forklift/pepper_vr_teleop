@@ -201,6 +201,7 @@ class VRController():
 
             self.rate.sleep()
 
+    # DEBUG: Debugging function, test optimization speed
     def speedTest(self):
         '''
         Runs the optimization multiple times and finds and average speed.
@@ -221,6 +222,7 @@ class VRController():
 
         print('Ran optimization {0} times.\n Average speed: {1:0.6f} sec'.format(n, avg_time))
 
+    # DEBUG: Debugging function, set pose for visual debugging
     def poseTest(self):
         '''
         Puts the robot model in a specificy pose to test what the joint angles
@@ -261,12 +263,11 @@ class VRController():
         # DEBUG: update setpoint transform
         self.pepper_left_setpoint.position = list(left_pepper_setpoint)
 
-        #--- Perform Optimization over loop with different starting points
         # Set initial condition (current joint configuration)
         x0_left = self.initial_pose[0:4]
 
         # Run optimization
-        res_left = minimize(self.objective, x0_left, args=(left_pepper_setpoint, left_rotation[0:3,0], 'L'), method=opt_method, bounds=self.bounds_left)
+        res_left_arm = minimize(self.objective, x0_left, args=(left_pepper_setpoint, left_rotation[0:3,0], 'L'), method=opt_method, bounds=self.bounds_left)
 
         #===== Perform inverse kinematics optimization for right arm =====#
         # Calculate desired setpoint
@@ -277,26 +278,40 @@ class VRController():
         # DEBUG: update setpoint transform
         self.pepper_right_setpoint.position = list(right_pepper_setpoint)
 
-        #--- Perform Optimization over loop with different starting points
         # Set initial condition (current joint configuration)
         x0_right = self.initial_pose[5:9]
 
         # Run optimization
-        res_right = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation[0:3,0], 'R'), method=opt_method, bounds=self.bounds_right)
+        res_right_arm = minimize(self.objective, x0_right, args=(right_pepper_setpoint, right_rotation[0:3,0], 'R'), method=opt_method, bounds=self.bounds_right)
+
+        #===== Perform inverse kinematics optimization for left wrist =====#
+        x0_left = self.initial_pose[4]
+        res_left_wrist = minimize(self.objectiveWrist, x0_left, args=(res_left_arm.x, left_rotation[0:3,1], left_rotation[0:3,2], 'L'), method=opt_method, bounds=self.bounds_left_wrist)
+
+        #===== Perform inverse kinematics optimization for right wrist =====#
+        x0_right = self.initial_pose[9]
+        res_right_wrist = minimize(self.objectiveWrist, x0_right, args=(res_right_arm.x, right_rotation[0:3,1], right_rotation[0:3,2], 'R'), method=opt_method, bounds=self.bounds_right_wrist)
 
         #===== Set Joint Angles =====#
-        # (if the array isze is 0 there were no successful optimzations, then
-        # use the previous angles)
-        if res_left.success is not False:
+        if res_left_arm.success is not False:
             for i in range(len(self.joint_names_left[0:-1])):
-                self.angle_setpoints[self.joint_names_left[i]] = res_left.x[i]
+                self.angle_setpoints[self.joint_names_left[i]] = res_left_arm.x[i]
         else:
-            rospy.logwarn('[{0}]: Left optimization failed.'.format(rospy.get_name()))
-        if res_right.success is not False:
+            rospy.logwarn('[{0}]: Left arm optimization failed.'.format(rospy.get_name()))
+        if res_right_arm.success is not False:
             for i in range(len(self.joint_names_right[0:-1])):
-                self.angle_setpoints[self.joint_names_right[i]] = res_right.x[i]
+                self.angle_setpoints[self.joint_names_right[i]] = res_right_arm.x[i]
         else:
-            rospy.logwarn('[{0}]: Right optimization failed.'.format(rospy.get_name()))
+            rospy.logwarn('[{0}]: Right arm optimization failed.'.format(rospy.get_name()))
+
+        if res_left_wrist.success is not False:
+            self.angle_setpoints['LWristYaw'] = res_left_wrist.x
+        else:
+            rospy.logwarn('[{0}]: Left wrist optimization failed.'.format(rospy.get_name()))
+        if res_right_wrist.success is not False:
+            self.angle_setpoints['RWristYaw'] = res_right_wrist.x
+        else:
+            rospy.logwarn('[{0}]: Right wrist optimization failed.'.format(rospy.get_name()))
 
         # FIXME: vvv testing calculation values vvv
         # Update hand position
@@ -332,7 +347,7 @@ class VRController():
 
     def objective(self, x, setpoint, controller_x_axis, hand):
         '''
-        Objective function for the optimization.
+        Objective function for the arm optimization.
 
         Parameters
         ----------
@@ -344,7 +359,7 @@ class VRController():
         controller_x_axis: numpy array
             (3,) numpy array containing the controller's X axis vector.
         hand: {'L', 'R'}
-            The side to perform the optimization on.
+            The side to perform the optimization on. L' = left, 'R' = right
 
         Returns
         -------
@@ -409,6 +424,67 @@ class VRController():
                 print('R Dot product: {0}'.format(right_x_axis.dot(controller_x_axis)))
 
         cost = self.position_weight*position_error + self.orientation_weight*orientation_error
+
+        return cost
+
+    def objectiveWrist(self, x, arm_angles, controller_y_axis, controller_z_axis, hand):
+        '''
+        Objective function for determining the wrist yaw angles. Adjusts the wrist yaw angle to match the hand's Y and Z axes to be as close as possible to the controller's.
+
+        Parameters
+        ----------
+        x: float
+            The wrist yaw angle for the given hand.
+        arm_angles: numpy array
+            (4,) numpy array of angles for the four other joints in the following order: [ShoulderPitch, ShoulderRoll, ElbowYaw, ElbowRoll]
+        controller_y_axis: numpy array
+            (3,) numpy array containing the controller's Y axis vector.
+        controller_z_axis: numpy array
+            (3,) numpy array containing the controller's Z axis vector.
+        hand: {'L', 'R'}
+            The side to perform the optimization on. 'L' = left, 'R' = right
+
+        Returns
+        -------
+        cost: float
+            The error of between the two hand axes and the controller's.
+        '''
+        #===== Check Inputs =====#
+        if hand not in ['L', 'R']:
+            raise ValueError('Invalid hand type for objectiveWrist(): {0}, must be "L" or "R"'.format(hand))
+
+        error_y = 0.0
+        error_z = 0.0
+
+        #===== Left Arm =====#
+        if hand == 'L':
+            # Update hand position
+            self.pepper_model.setTransformsLeft(np.append(arm_angles, x))
+            left_transform = self.pepper_model.getLeftHandTransform()
+            left_y_axis = left_transform[0:3,1]
+            left_z_axis = left_transform[0:3,2]
+
+            # Get Y axis error
+            error_y = np.arccos(left_y_axis.dot(controller_y_axis))
+
+            # Get Z axis error
+            error_z = np.arccos(left_z_axis.dot(controller_z_axis))
+
+        #===== Right Arm =====#
+        else:
+            # Update hand position
+            self.pepper_model.setTransformsRight(np.append(arm_angles, x))
+            right_transform = self.pepper_model.getRightHandTransform()
+            right_y_axis = right_transform[0:3,1]
+            right_z_axis = right_transform[0:3,2]
+
+            # Get Y axis error
+            error_y = np.arccos(right_y_axis.dot(controller_y_axis))
+
+            # Get Z axis error
+            error_z = np.arccos(right_z_axis.dot(controller_z_axis))
+
+        cost = error_y + error_z
 
         return cost
 

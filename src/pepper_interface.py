@@ -15,6 +15,7 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 from naoqi_bridge_msgs.msg import JointAnglesWithSpeed
 from sensor_msgs.msg import Image
+from std_msgs.msg import Float64
 
 # Python
 import numpy as np
@@ -38,6 +39,7 @@ class PepperInterface():
 
         # Locomotion
         self.disable_external_collisions = rospy.get_param('~disable_external_collisions', False)
+        self.grasp_threshold = 0.5 # trigger value when hand closes
         self.command_duration = rospy.get_param('~command_duration', 1.0)
         self.command_start_time = 0.0
         self.x_velocity = 0.0
@@ -96,6 +98,8 @@ class PepperInterface():
         # Subscribers
         self.joint_angles_sub = rospy.Subscriber('~joint_angles', JointAnglesWithSpeed, self.jointAnglesCallback, queue_size=3)
         self.cmd_vel_sub = rospy.Subscriber('~cmd_vel', Twist, self.cmdVelCallback, queue_size=3)
+        self.left_hand_grasp_sub = rospy.Subscriber('~grasp/left', Float64, self.leftGraspCallback, queue_size=3)
+        self.right_hand_grasp_sub = rospy.Subscriber('~grasp/right', Float64, self.rightGraspCallback, queue_size=3)
 
     def spin(self):
         while not rospy.is_shutdown():
@@ -155,6 +159,24 @@ class PepperInterface():
         self.x_velocity = msg.linear.x
         self.y_velocity = msg.linear.y
         self.theta_velocity = msg.angular.z
+
+    def leftGraspCallback(self, msg):
+        '''
+        Sets the grasp position for the left hand.
+        '''
+        if msg.data >= self.grasp_threshold:
+            self.motion_proxy.closeHand('LHand')
+        else:
+            self.motion_proxy.openHand('LHand')
+
+    def rightGraspCallback(self, msg):
+        '''
+        Sets the grasp position for the right hand.
+        '''
+        if msg.data >= self.grasp_threshold:
+            self.motion_proxy.closeHand('RHand')
+        else:
+            self.motion_proxy.openHand('RHand')
 
     def shutdown(self):
         if self.use_camera:

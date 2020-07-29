@@ -11,8 +11,10 @@ from pepper_transforms import Transform, PepperModel
 import numpy as np
 
 import rospy
+from geometry_msgs.msg import Twist
 from naoqi_bridge_msgs.msg import JointAnglesWithSpeed
 from sensor_msgs.msg import Joy
+from std_msgs.msg import Float64
 import tf
 
 
@@ -57,6 +59,9 @@ class VRController():
         # Ratio of Pepper's arm to human arm
         self.arm_ratio = rospy.get_param('~arm_ratio', 1.0)
         rospy.loginfo('[{0}]: Arm ratio: {1}'.format(rospy.get_name(), self.arm_ratio))
+        self.velocity_linear_max = rospy.get_param('~velocity_linear_max', 0.3)
+        self.velocity_angular_max = rospy.get_param('~velocity_angular_max', 0.4)
+        rospy.loginfo('[{0}]: Max linear velocity: {1}, Max angular velocity: {2}'.format(rospy.get_name(), self.velocity_linear_max, self.velocity_angular_max))
         # Name of left controller frame from vive_ros
         self.left_name = rospy.get_param('~left_name', 'controller_LHR_FFF73D47')
         # Name of right controller frame from vive_ros
@@ -91,6 +96,12 @@ class VRController():
         self.joint_angles_msg.joint_names = self.joint_names
         self.joint_angles_msg.speed = self.fraction_max_arm_speed
         self.joint_angles_pub = rospy.Publisher('/pepper_interface/joint_angles', JointAnglesWithSpeed, queue_size=3)
+        self.cmd_vel_msg = Twist()
+        self.cmd_vel_pub = rospy.Publisher('/pepper_interface/cmd_vel', Twist, queue_size=3)
+        self.left_hand_grasp_msg = Float64()
+        self.left_hand_grasp_pub = rospy.Publisher('/pepper_interface/grasp/left', Float64, queue_size=3)
+        self.right_hand_grasp_msg = Float64()
+        self.right_hand_grasp_pub = rospy.Publisher('/pepper_interface/grasp/right', Float64, queue_size=3)
 
         #===== Subscribers =====#
         self.left_controller_sub = rospy.Subscriber('/vive/' + self.left_name + '/joy', Joy, self.leftCallback, queue_size=1)
@@ -560,13 +571,33 @@ class VRController():
             if not self.running_calibration:
                 self.calibrateOrientation()
 
+        # Trigger button: perform hand grasp
+        self.left_hand_grasp_msg.data = msg.axes[2]
+        self.left_hand_grasp_pub.publish(self.left_hand_grasp_msg)
+
+        # Joystick: controls translational velocities
+        # (Y axis joystick values are flipped and must be negated)
+        self.cmd_vel_msg.linear.x = self.velocity_linear_max*msg.axes[1]
+        self.cmd_vel_msg.linear.y = -self.velocity_linear_max*msg.axes[0]
+        self.cmd_vel_pub.publish(self.cmd_vel_msg)
+
     def rightCallback(self, msg):
         '''
         Reads the right joystick buttons.
         '''
+        # Side button: perform position calibration
         if msg.buttons[3]:
             if not self.running_calibration:
                 self.calibratePosition()
+
+        # Trigger button: perform hand grasp
+        self.right_hand_grasp_msg.data = msg.axes[2]
+        self.right_hand_grasp_pub.publish(self.right_hand_grasp_msg)
+
+        # Joystick: controls rotational velocities
+        # (Joystick axes are reversed so velocity must be negated)
+        self.cmd_vel_msg.angular.z = -self.velocity_angular_max*msg.axes[0]
+        self.cmd_vel_pub.publish(self.cmd_vel_msg)
 
 if __name__ == '__main__':
     try:

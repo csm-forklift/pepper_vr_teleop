@@ -40,6 +40,9 @@ class PepperInterface():
         # Locomotion
         self.disable_external_collisions = rospy.get_param('~disable_external_collisions', False)
         self.grasp_threshold = 0.5 # trigger value when hand closes
+        # Hand grasp: False = open, True = closed
+        self.left_grasp_prev = False
+        self.right_grasp_prev = False
         self.command_duration = rospy.get_param('~command_duration', 1.0)
         self.command_start_time = 0.0
         self.x_velocity = 0.0
@@ -164,19 +167,23 @@ class PepperInterface():
         '''
         Sets the grasp position for the left hand.
         '''
-        if msg.data >= self.grasp_threshold:
+        if (msg.data >= self.grasp_threshold):
             self.motion_proxy.closeHand('LHand')
-        else:
+            self.left_grasp_prev = True
+        elif (msg.data < self.grasp_threshold and self.left_grasp_prev):
             self.motion_proxy.openHand('LHand')
+            self.left_grasp_prev = False
 
     def rightGraspCallback(self, msg):
         '''
         Sets the grasp position for the right hand.
         '''
-        if msg.data >= self.grasp_threshold:
+        if (msg.data >= self.grasp_threshold):
             self.motion_proxy.closeHand('RHand')
-        else:
+            self.right_grasp_prev = True
+        elif (msg.data < self.grasp_threshold and self.right_grasp_prev):
             self.motion_proxy.openHand('RHand')
+            self.right_grasp_prev = False
 
     def shutdown(self):
         if self.use_camera:

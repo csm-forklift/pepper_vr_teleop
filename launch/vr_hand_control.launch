@@ -5,7 +5,7 @@
     <arg name="arm_ratio" default="1.0"/>
     <arg name="velocity_linear_max" default="0.3"/>
     <arg name="velocity_angular_max" default="0.4"/>
-    <arg name="speed_fraction" default="0.1"/>
+    <arg name="speed_fraction" default="0.2"/>
     <arg name="calibration_time" default="1.0"/>
     <!-- best weight values are position: 100.0, orientation: 1.0 -->
     <arg name="position_weight" default="100.0"/>

@@ -93,6 +93,11 @@ class PepperInterface():
             except:
                 rospy.logwarn('[{0}]: Error turning off external collision detection for the arms. The arms may have trouble moving if it thinks there is an obstacle nearby.'.format(rospy.get_name()))
 
+        # Turn off AutonomousLife functionality
+        self.autonomouslife_proxy = ALProxy('ALAutonomousLife', self.robot_ip, self.robot_port)
+        rospy.loginfo('[{0}]: Turning off AutonomousLife functionality.'.format(rospy.get_name()))
+        self.autonomouslife_proxy.setAutonomousAbilityEnabled('All', False)
+
         #--- Publishers and Subscribers
         # Publishers
         if self.use_camera:
@@ -196,6 +201,10 @@ class PepperInterface():
             self.motion_proxy.setExternalCollisionProtectionEnabled('All', True)
         except:
             rospy.logwarn('[{0}]: Failed to turn external collision protection back on. Please try to set this manually.'.format(rospy.get_name()))
+
+        # Restore AutonomousLife
+        rospy.loginfo('[{0}]: Turning AutonomousLife back on.'.format(rospy.get_name()))
+        self.autonomouslife_proxy.setAutonomousAbilityEnabled('All', True)
 
 if __name__ == '__main__':
     try:

@@ -247,7 +247,7 @@ class PepperInterface():
             rospy.loginfo('[{0}]: Closing camera subscriber ({1})'.format(rospy.get_name(), self.camera_sub))
             self.camera_proxy.unsubscribe(self.camera_sub)
 
-        rospy.loginfo('[{0}]: Turnning external collision protection back on.'.format(rospy.get_name()))
+        rospy.loginfo('[{0}]: Turning external collision protection back on.'.format(rospy.get_name()))
         try:
             self.motion_proxy.setExternalCollisionProtectionEnabled('All', True)
         except:

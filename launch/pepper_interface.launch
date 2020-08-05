@@ -2,7 +2,7 @@
 <launch>
     
     <arg name="simulation" default="false"/>
-    <arg name="use_camera" default="true"/>
+    <arg name="use_camera" default="false"/>
     <!-- <arg name="robot_ip" default="169.254.182.122"/> -->
     <arg name="robot_ip" default="138.67.198.34"/>
     <arg name="robot_port" default="9559"/>

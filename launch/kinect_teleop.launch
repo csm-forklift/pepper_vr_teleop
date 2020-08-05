@@ -1,5 +1,8 @@
 <!-- Launch joint tracking nodes -->
 <launch>
+    
+    <!-- Arguments -->
+    <arg name="speed_fraction" default="0.3"/>
 
     <!-- Start openni_tracker for skeleton transforms -->
     <node name="openni_tracker" pkg="openni_tracker" type="openni_tracker" output="screen">
@@ -14,7 +17,7 @@
     
     <!-- Start controller -->
     <node name="kinect_control" pkg="pepper_vr_teleop" type="kinect_control.py" output="screen">
-        <param name="speed_fraction" value="0.3"/>
+        <param name="speed_fraction" value="$(arg speed_fraction)"/>
     </node>
 
 </launch>

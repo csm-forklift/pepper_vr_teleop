@@ -1,5 +1,6 @@
 """
-Classes used for TCP communication. They handle checking the state and processing the data. The client and server act in the following way:
+Classes used for TCP communication. They handle checking the state and
+processing the data. The client and server act in the following ways:
 
 Client:
 1) Connect to server
@@ -45,6 +46,7 @@ class TCP(object):
         self.json_header = None
         self.content = None
 
+        # This makes sure to close the socket regardless of how the prcess ends
         atexit.register(self.close)
 
     def read(self):
@@ -342,15 +344,15 @@ class TCPClient(TCP):
         #======================================================================#
         # Parameters
         self.encoding = 'utf-8'
-        available_image_types = ['bmp', 'png', 'jpeg']
-        if (image_type not in available_image_types):
-            raise ValueError('image_type {0} does not match the available types: {1}'.format(image_type, available_image_types))
+        self.available_image_types = self.get_available_image_types()
+        if (image_type not in self.available_image_types):
+            raise ValueError('image_type \'{0}\' does not match the available types: {1}'.format(image_type, self.available_image_types))
         self.image_type = image_type
         self.compression_value = 0
-        if (self.image_Type == available_image_types[1]):
+        if (self.image_Type == self.available_image_types[1]):
             # PNG range 0 to 9
             self.compression_value = int(round((9.0 - 0.0)/(100.0 - 0.0)*(compression)))
-        elif (self.image_type == available_image_types[2]):
+        elif (self.image_type == self.available_image_types[2]):
             # JPEG range 100 to 0
             self.compression_value = int(100 - compression)
 
@@ -373,29 +375,23 @@ class TCPClient(TCP):
     # Define Request Message
     #==========================================================================#
     def create_message(self):
-        """ Generate the Request message bytes.
-        TODO: Need to update this function to encode the image based on the parameters.
-        """
-        # FIXME:
-        # Use a parameter that indicates whether the image should be a BMP, PNG, or JPEG, and the quality at which it should be compressed.
-        # BMP has no compression, PNG goes from 0-9 (9 being highest compression), and JPEG goes from 0-100 (100 being the highest compression)
-
+        """ Generate the Request message bytes. """
         # Convert image to appropriate encoding
-        # retval, content_bytes = cv2.imencode('.bmp', self.image)
-        # USE IMAGE FROM VIDEO STREAM
-        #retval, content_bytes = cv2.imencode('.png', self.image, [cv2.IMWRITE_PNG_COMPRESSION, 5])
-        retval, content_bytes = cv2.imencode('.jpg', self.image, [cv2.IMWRITE_JPEG_QUALITY, 50])
-        print(self.image.shape)
-        print(content_bytes.shape)
+        if (self.image_type == 'bmp'):
+            retval, content_bytes = cv2.imencode('.bmp', self.image)
+        elif (self.image_type == 'png'):
+            retval, content_bytes = cv2.imencode('.png', self.image, [cv2.IMWRITE_PNG_COMPRESSION, self.compression_value])
+        else:
+            retval, content_bytes = cv2.imencode('.jpg', self.image, [cv2.IMWRITE_JPEG_QUALITY, self.compression_value])
+
         content_bytes = content_bytes.tobytes()
 
         # Create JSON Header
-        # (image can be 'bmp' or 'png')
         json_header = {
             'is_big_endian': False,
-            'content-type': 'image/bmp',
+            'content-type': 'image/' + self.image_type,
             'content-encoding': 'binary',
-            'colorspace': 'argb8',
+            'colorspace': 'bgr8',
             'image-height': self.image.shape[0],
             'image-width': self.image.shape[1],
             'content-length': len(content_bytes)
@@ -414,7 +410,8 @@ class TCPClient(TCP):
         """ Process the Response content.
 
         Processes the content bytes from the Response. It indicates whether the
-        image was successfully read.
+        image was successfully read. A message must be successfully received
+        before moving on to sending a new request.
 
         json_message = {
             'success': <boolean>
@@ -465,6 +462,11 @@ class TCPClient(TCP):
         self.image = image
         self.new_image = True
         self.image_lock.release()
+
+    # Used to access the available image types before creating a client object.
+    @staticmethod
+    def get_available_image_types():
+        return ['bmp', 'png', 'jpeg']
 
 #==============================================================================#
 # Exception Classes

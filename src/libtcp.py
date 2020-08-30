@@ -349,7 +349,7 @@ class TCPClient(TCP):
             raise ValueError('image_type \'{0}\' does not match the available types: {1}'.format(image_type, self.available_image_types))
         self.image_type = image_type
         self.compression_value = 0
-        if (self.image_Type == self.available_image_types[1]):
+        if (self.image_type == self.available_image_types[1]):
             # PNG range 0 to 9
             self.compression_value = int(round((9.0 - 0.0)/(100.0 - 0.0)*(compression)))
         elif (self.image_type == self.available_image_types[2]):
@@ -445,8 +445,15 @@ class TCPClient(TCP):
                 self.content = None
         except ConnectionClosedError as e:
             print(e)
+            print("ConnectionClosedError")
+            self.close()
+            return False
         except KeyboardInterrupt:
-            pass
+            print("KeyboardInterrupt")
+            self.close()
+            return False
+
+        return True
 
     def set_new_image(self, image):
         """ Receives the image and stores it to the local member variable.

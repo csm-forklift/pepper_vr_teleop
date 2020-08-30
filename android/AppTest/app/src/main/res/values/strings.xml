@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">AppTest</string>
+    <string name="button_view">View Feed</string>
+    <string name="no_feed">No Feed</string>
+    <string name="button_close">Close</string>
+    <string name="button_status">Status</string>
+    <string name="ip_address">IP Address: %s</string>
+    <string name="port">Port: %s</string>
+    <string name="waiting">Waiting for connection...</string>
+    <string name="connected">Connected to client at: %s</string>
+    <string name="failed">Failed to connect to any clients</string>
+</resources>

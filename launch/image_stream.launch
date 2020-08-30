@@ -1,0 +1,20 @@
+<!-- Starts streaming a sensor_msgs::Image topic to an Android App -->
+<launch>
+
+    <!-- Arguments -->
+    <arg name="server_ip" default="192.168.2.3"/>
+    <arg name="server_port" default="65432"/>
+    <arg name="image_type" default="jpeg"/>
+    <arg name="compression" default="50"/>
+    <arg name="image_topic" default="/camera/rgb/image_color"/>
+    
+    <!-- Start streaming node -->
+    <node name="image_stream" pkg="pepper_vr_teleop" type="image_stream.py" output="screen">
+        <param name="server_ip" value="$(arg server_ip)"/>
+        <param name="server_port" value="$(arg server_port)"/>
+        <param name="image_type" value="$(arg image_type)"/>
+        <param name="compression" value="$(arg compression)"/>
+        <param name="image_topic" value="$(arg image_topic)"/>
+    </node>
+
+</launch>

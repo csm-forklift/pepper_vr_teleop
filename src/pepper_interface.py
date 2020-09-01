@@ -4,7 +4,7 @@
 This node acts as the bridge between ROS commands and the Pepper SDK. Running
 the "pepper_full_py.launch" file will establish a ROS connection to the full
 suite of Pepper's sensors, but not all of the sensors are required for the VR
-teleoperation functions.This node uses only the sensors required in order to
+teleoperation functions. This node uses only the sensors required in order to
 help reduce communication and to directly access the desired commands from the
 Python SDK.
 
@@ -13,13 +13,15 @@ ROS Node Description
 Parameters
 ----------
 ~robot_ip : str, default: 138.67.198.34
-    The IPv4 IP address of Pepper input as a string. For ethernet the format is
-    '169.254.X.X' for wifi the format is '138.67.X.X'.
+    The IPv4 IP address of Pepper as a string. For ethernet the subnet is
+    '169.254.X.X' and for wifi the subnet is '138.67.X.X'.
 ~robot_port : int, default: 9559
     The port used for TCP connection to Pepper. Pepper's default value is 9559.
 ~disable_external_collisions : bool, default: False
     Whether to disable the external collision protection, defaults to False for
-    safety reasons.
+    safety reasons. This can only be done after allowing this action in
+    Pepper's advanced settings. This is accessed through 'http://<robot
+    ip>/advanced/#/settings'
 ~command_duration : float, default: 1.0
     How long the velocity command should drive the base after receiving a
     message on the topic. If no new message is received after this time, the
@@ -34,7 +36,8 @@ Parameters
 Published Topics
 ----------------
 <~image_topic> : sensor_msgs/Image
-    The image from Pepper's camera.
+    The image from Pepper's camera. The default topic name is
+    '/pepper_interface/camera/front/image_raw'.
 
 Subscribed Topics
 -----------------
@@ -51,7 +54,6 @@ Subscribed Topics
 ~grasp/right : std_msgs/Float64
     Controls the grasp position of the right hand. 1 will close the hand, 0 will
     open it.
-
 """
 
 # NaoQI SDK
@@ -71,15 +73,13 @@ from copy import deepcopy
 
 
 class PepperInterface():
-    """ ROS node class for interfacing with Pepper.
-
-    """
+    """ ROS node class for interfacing with Pepper. """
     def __init__(self):
         #===== ROS Setup =====#
         rospy.init_node('pepper_interface')
         rospy.on_shutdown(self.shutdown)
 
-        #--- Parameters
+        #----- Parameters -----#
         # Loop Rate (for camera image processing)
         self.frequency = 30
         self.rate = rospy.Rate(self.frequency)
@@ -100,23 +100,23 @@ class PepperInterface():
         self.y_velocity = 0.0
         self.theta_velocity = 0.0
 
-        # Camera
+        #--- Camera
         self.use_camera = rospy.get_param('~use_camera', True)
         self.image_topic = rospy.get_param('~image_topic', '/pepper_interface/camera/front/image_raw')
         self.frame_rate = rospy.get_param('~frame_rate', 30)
         # The following parameters are specified in the Pepper SDK documentation
         # and used with the 'ALVideoDevice' module.
         # See: http://doc.aldebaran.com/2-5/family/pepper_technical/video_2D_pep_v18a.html
-        #--- ColorSpace ---#
+        # ColorSpace
         # RGB: 11
         # BGR: 13
         self.color_space = 13 # opencv uses BGR as default
-        #--- Resolution ---#
+        # Resolution
         # 320x240 (1-30fps): 1
         # 640x480 (1-30fps): 2
         # 1280x960   (1fps): 3
         self.resolution = 2
-        #--- Camera Index ---#
+        # Camera Index
         # front top:    0
         # front bottom: 1
         # depth:        2
@@ -131,7 +131,7 @@ class PepperInterface():
             self.camera_sub = self.camera_proxy.subscribeCamera('camera_front', self.camera_index, self.resolution, self.color_space, self.frame_rate)
             rospy.loginfo('[{0}]: subscribed to front camera ({1})'.format(rospy.get_name(), self.camera_sub))
 
-        # Turn off the External Collision Detection
+        #--- Turn off the External Collision Detection
         if self.disable_external_collisions:
             rospy.loginfo('[{0}]: Turning off external collision detection for base'.format(rospy.get_name()))
             try:
@@ -144,31 +144,31 @@ class PepperInterface():
             except:
                 rospy.logwarn('[{0}]: Error turning off external collision detection for the arms. The arms may have trouble moving if it thinks there is an obstacle nearby.'.format(rospy.get_name()))
 
-        # Turn off AutonomousLife functionality
+        #--- Turn off AutonomousLife functionality
         self.autonomouslife_proxy = ALProxy('ALAutonomousLife', self.robot_ip, self.robot_port)
         rospy.loginfo('[{0}]: Turning off AutonomousLife functionality.'.format(rospy.get_name()))
         self.autonomouslife_proxy.setAutonomousAbilityEnabled('All', False)
 
-        #--- Publishers and Subscribers
-        # Publishers
+        #----- Publishers -----#
         if self.use_camera:
             self.image_pub = rospy.Publisher('{0}'.format(self.image_topic), Image, queue_size=1)
 
-        # Subscribers
+        #----- Subscribers -----#
         self.joint_angles_sub = rospy.Subscriber('~joint_angles', JointAnglesWithSpeed, self.jointAnglesCallback, queue_size=3)
         self.cmd_vel_sub = rospy.Subscriber('~cmd_vel', Twist, self.cmdVelCallback, queue_size=3)
         self.left_hand_grasp_sub = rospy.Subscriber('~grasp/left', Float64, self.leftGraspCallback, queue_size=3)
         self.right_hand_grasp_sub = rospy.Subscriber('~grasp/right', Float64, self.rightGraspCallback, queue_size=3)
 
     def spin(self):
+        """ Process loop: reads image, sends motion commands. """
         while not rospy.is_shutdown():
-            #--- Send the velocity command ---#
+            #===== Send the velocity command =====#
             if (rospy.get_time() - self.command_start_time) < self.command_duration:
                 self.motion_proxy.move(self.x_velocity, self.y_velocity, self.theta_velocity)
             else:
                 self.motion_proxy.move(0.0, 0.0, 0.0)
 
-            #--- Read the camera image ---#
+            #===== Read the camera image =====#
             if self.use_camera:
                 # Get image
                 # the output is a list of image values as described here:
@@ -200,19 +200,17 @@ class PepperInterface():
             self.rate.sleep()
 
     def jointAnglesCallback(self, msg):
-        '''
-        Reads in the joint angles from the message and passes them to Pepper
-        using the SDK function.
-        '''
+        """ Reads joint angles passes them to Pepper using the SDK function. """
         self.motion_proxy.setAngles(msg.joint_names, msg.joint_angles, msg.speed)
 
     def cmdVelCallback(self, msg):
-        '''
+        """ Base velocity command callback.
+
         Reads the Twist message and sends the linear X and Y and angular Z
         values to Pepper through the SDK. Commands are run for
         "command_duration" seconds. Everytime this function is called it resets
         the timer.
-        '''
+        """
         # Restart the timer
         self.command_start_time = rospy.get_time()
         self.x_velocity = msg.linear.x
@@ -220,9 +218,7 @@ class PepperInterface():
         self.theta_velocity = msg.angular.z
 
     def leftGraspCallback(self, msg):
-        '''
-        Sets the grasp position for the left hand.
-        '''
+        """ Sets the grasp position for the left hand. """
         if (msg.data >= self.grasp_threshold):
             self.motion_proxy.closeHand('LHand')
             self.left_grasp_prev = True
@@ -231,9 +227,7 @@ class PepperInterface():
             self.left_grasp_prev = False
 
     def rightGraspCallback(self, msg):
-        '''
-        Sets the grasp position for the right hand.
-        '''
+        """ Sets the grasp position for the right hand. """
         if (msg.data >= self.grasp_threshold):
             self.motion_proxy.closeHand('RHand')
             self.right_grasp_prev = True
@@ -242,11 +236,15 @@ class PepperInterface():
             self.right_grasp_prev = False
 
     def shutdown(self):
+        """ Closes camera and restores collision protection and autonomous
+        life on Pepper.
+        """
         if self.use_camera:
             # Close camera connection
             rospy.loginfo('[{0}]: Closing camera subscriber ({1})'.format(rospy.get_name(), self.camera_sub))
             self.camera_proxy.unsubscribe(self.camera_sub)
 
+        # Restore external collision protection
         rospy.loginfo('[{0}]: Turning external collision protection back on.'.format(rospy.get_name()))
         try:
             self.motion_proxy.setExternalCollisionProtectionEnabled('All', True)

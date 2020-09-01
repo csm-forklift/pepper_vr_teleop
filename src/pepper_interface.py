@@ -12,43 +12,43 @@ ROS Node Description
 ====================
 Parameters
 ----------
-~robot_ip : (str, default: 138.67.198.34)
+~robot_ip : str, default: 138.67.198.34
     The IPv4 IP address of Pepper input as a string. For ethernet the format is
     '169.254.X.X' for wifi the format is '138.67.X.X'.
-~robot_port : (int, default: 9559)
+~robot_port : int, default: 9559
     The port used for TCP connection to Pepper. Pepper's default value is 9559.
-~disable_external_collisions : (bool, default: False)
+~disable_external_collisions : bool, default: False
     Whether to disable the external collision protection, defaults to False for
     safety reasons.
-~command_duration : (float, default: 1.0)
+~command_duration : float, default: 1.0
     How long the velocity command should drive the base after receiving a
     message on the topic. If no new message is received after this time, the
     velocity is set to 0.
-~use_camera : (bool, default: True)
+~use_camera : bool, default: True
     Whether to subscribe to Pepper's camera and publish the images.
-~image_topic : (str, default: '/pepper_interface/camera/front/image_raw')
+~image_topic : str, default: '/pepper_interface/camera/front/image_raw'
     The name of the topic to publish Pepper's camera images on.
-~frame_rate : (int, default: 30)
+~frame_rate : int, default: 30
     The desired frame rate to receive images from Pepper's camera.
 
 Published Topics
 ----------------
-<~image_topic> : (sensor_msgs/Image)
+<~image_topic> : sensor_msgs/Image
     The image from Pepper's camera.
 
 Subscribed Topics
 -----------------
-~joint_angles : (naoqi_bridge_msgs/JointAnglesWithSpeed)
+~joint_angles : naoqi_bridge_msgs/JointAnglesWithSpeed
     Reads the joint angle setpoints and desired speed fraction and sends the
     command to Pepper to move to those angles using the Python SDK.
-~cmd_vel : (geometry_msgs/Twist)
+~cmd_vel : geometry_msgs/Twist
     Reads the desired (x,y) linear velocities and the (theta) angular velocity
     and sends the command to move Pepper's base using the Python SDK. The
     command will last for <command_duration> unless a new message is received.
-~grasp/left : (std_msgs/Float64)
+~grasp/left : std_msgs/Float64
     Controls the grasp position of the left hand. 1 will close the hand, 0 will
     open it.
-~grasp/right : (std_msgs/Float64)
+~grasp/right : std_msgs/Float64
     Controls the grasp position of the right hand. 1 will close the hand, 0 will
     open it.
 

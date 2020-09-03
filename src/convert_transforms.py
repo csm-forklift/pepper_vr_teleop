@@ -154,6 +154,11 @@ class ConvertTransforms:
         applies appropriate rotation to update the frames and stores the data in
         member variables. It does not publish the new transforms. If there are
         any errors, the function is exited and returns "False".
+
+        Returns
+        -------
+        bool
+            True if the transforms were updated. False if there were any errors.
         """
         try:
             #===== Update base_link =====#

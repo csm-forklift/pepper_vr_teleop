@@ -86,11 +86,11 @@ class PepperInterface():
         self.frequency = 30
         self.rate = rospy.Rate(self.frequency)
 
-        # Pepper Connection
+        #----- Pepper Connection -----#
         self.robot_ip = rospy.get_param('~robot_ip', '138.67.198.34')
         self.robot_port = rospy.get_param('~robot_port', 9559)
 
-        # Locomotion
+        #----- Locomotion -----#
         self.disable_external_collisions = rospy.get_param('~disable_external_collisions', False)
         self.grasp_threshold = 0.5 # trigger value when hand closes
         # Hand grasp: False = open, True = closed

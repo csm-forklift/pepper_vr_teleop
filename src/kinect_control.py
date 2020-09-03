@@ -1,16 +1,44 @@
 #!/usr/bin/env python
+""" Sets Pepper's joint angles based off the user's pose.
 
-'''
-ROS Node that reads the transforms published by 'convert_transforms' and
-calculates the joint angles for Pepper, then publishes them.
-'''
-# TODO:
-# make a parameter for "base_link" and change all the instances to that
-# variable.
+The transforms broadcasted by the 'convert_transforms' node are read and the
+joint positions are used to determine Pepper's joint angles. The inverse
+kinematics start with the shoulder to find the 'pitch' and 'roll' angles. These
+two angles are used to find Pepper's shoulder frame axes. The elbow and hand
+positions are then used to calculate the elbow 'yaw' and 'roll' angles based on
+their relative positions in the shoulder frame. The angles are calculated
+independently for each arm. Details on the inverse kinematics can be found in
+the documentation. After the angle setpoints are determined, they are published
+to the 'pepper_interface' node.
 
+ROS Node Description
+====================
+Parameters
+----------
+~speed_fraction : float, default: 0.1
+    The fraction of the maximum angular velocity for the joints to travel at
+    going to the setpoint. The maximum angular velocity is determined inside
+    Pepper. Lower values are safer for Pepper, but will make the tracking more
+    delayed.
+~max_angle_change : float, default: pi/6
+    The maximum angle change allowed to take place between process loops. The
+    frequency of the loop rate will change how this effects the motion.
+
+Published Topics
+----------------
+/pepper_interface/joint_angles : naoqi_bridge_msgs/JointAnglesWithSpeed
+    The joint angle setpoints that will be sent to Pepper.
+
+Subscribed Topics
+-----------------
+None (Uses tf.TransformListener)
+"""
+
+# Python
 import math
 import numpy as np
 
+# ROS
 import rospy
 from naoqi_bridge_msgs.msg import JointAnglesWithSpeed
 from sensor_msgs.msg import JointState
@@ -19,34 +47,43 @@ import tf
 
 class KinectControl:
     def __init__(self):
-        #===== Initialize ROS Objects =====#
+        #======================================================================#
+        # ROS Setup
+        #======================================================================#
         rospy.init_node('kinect_control')
 
-        # Joint Names
-        self.joint_names = ['LShoulderPitch', 'LShoulderRoll', 'LElbowYaw', 'LElbowRoll', 'RShoulderPitch', 'RShoulderRoll', 'RElbowYaw', 'RElbowRoll']
-
-        # Set Motion Parameters
-        # Scale factor
-        self.fraction_max_arm_speed = rospy.get_param('~speed_fraction', 0.1)
-
+        #===== Parameters =====#
         # Publishing frequency
         self.frequency = 30
         self.rate = rospy.Rate(self.frequency)
 
-        # Publishers
+        #----- Set Motion Parameters -----#
+        # Relative joint velocity (compared to max)
+        self.fraction_max_arm_speed = rospy.get_param('~speed_fraction', 0.1)
+
+        # NOTE: This parameter corresponds to a currently UNUSED filter.
+        # This is the maximum change allowed per loop in order to smooth out
+        # large jumps in the setpoint.
+        self.max_angle_change = rospy.get_param('~max_angle_change', np.pi/6)
+
+        #----- Joint Names -----#
+        self.joint_names = ['LShoulderPitch', 'LShoulderRoll', 'LElbowYaw', 'LElbowRoll', 'RShoulderPitch', 'RShoulderRoll', 'RElbowYaw', 'RElbowRoll']
+        self.base_link_name = 'base_link_K'
+
+        #===== Transform Listener/Broadcaster =====#
+        self.tfListener = tf.TransformListener()
+        self.tfBroadcaster = tf.TransformBroadcaster()
+
+        #===== Publishers =====#
         self.joint_angles_msg = JointAnglesWithSpeed()
         self.joint_angles_msg.joint_names = self.joint_names
         self.joint_angles_msg.speed = self.fraction_max_arm_speed
         self.joint_angles_pub = rospy.Publisher('/pepper_interface/joint_angles', JointAnglesWithSpeed, queue_size=3)
 
-        # TransformListener
-        self.tfListener = tf.TransformListener()
-
-        # TransformBroadcaster
-        self.tfBroadcaster = tf.TransformBroadcaster()
-
         #===== Derivation Variables =====#
-        # used to calculate the setpoints from the transforms
+        # These are the member variables used to calculate the angle setpoints
+        # given the joint transforms. See the documentation for how the angles
+        # are derived from the joint frames.
         self.shoulder_base_link = {'L': [0, 0, 0], 'R': [0, 0, 0]}
         self.shoulder_rotation = {'L': [0, 0, 0, 1], 'R': [0, 0, 0, 1]}
         self.elbow_base_link = {'L': [0, 0, 0], 'R': [0, 0, 0]}
@@ -69,6 +106,7 @@ class KinectControl:
             self.angle_setpoints_previous[key] = self.angle_setpoints[key]
         self.current_time = rospy.get_time()
 
+        # NOTE: This filter is currently UNUSED.
         #===== Filtering Parameters =====#
         # These variables are used for filtering the angle changes when the
         # shoulder and elbow are near singularities and for detecting and
@@ -103,6 +141,7 @@ class KinectControl:
             self.b[key] = self.max_learning_rate - self.a[key]*self.cutoff[key]
         #================================#
 
+        # NOTE: This filter is currently UNUSED
         #===== Large jump detection parameters =====#
         # Angle change to be considered a large jump
         self.large_angle = 3*np.pi/4 # rad
@@ -120,13 +159,11 @@ class KinectControl:
         self.large_jump = False
         #===========================================#
 
-        #===== Define Max Angle Change =====#
-        # This is the maximum change allowed per loop in order to smooth out
-        # large jumps in the setpoint.
-        self.max_angle_change = rospy.get_param('~max_angle_change', np.pi/6)
-        #===================================#
-
+    #==========================================================================#
+    # Main Process
+    #==========================================================================#
     def spin(self):
+        """ Process loop: read transforms, set and publish angles. """
         while not rospy.is_shutdown():
             try:
                 self.readTransforms()
@@ -137,38 +174,42 @@ class KinectControl:
             self.rate.sleep()
 
     def readTransforms(self):
-        '''
-        Grabs the current positions of the shoulders, elbows, and hands
-        '''
+        """ Grabs the current positions of the shoulders, elbows, and hands. """
         for side in  ['L', 'R']:
-            self.tfListener.waitForTransform('base_link_K', side + 'Shoulder_K', rospy.Time(), rospy.Duration.from_sec(1.0))
-            self.shoulder_base_link[side], self.shoulder_rotation[side] = self.tfListener.lookupTransform('base_link_K', side + 'Shoulder_K', rospy.Time())
-            self.elbow_base_link[side], _ = self.tfListener.lookupTransform('base_link_K', side + 'Elbow_K', rospy.Time())
-            self.hand_base_link[side], _ = self.tfListener.lookupTransform('base_link_K', side + 'Hand_K', rospy.Time())
+            self.tfListener.waitForTransform(self.base_link_name, side + 'Shoulder_K', rospy.Time(), rospy.Duration.from_sec(1.0))
+            self.shoulder_base_link[side], self.shoulder_rotation[side] = self.tfListener.lookupTransform(self.base_link_name, side + 'Shoulder_K', rospy.Time())
+            self.elbow_base_link[side], _ = self.tfListener.lookupTransform(self.base_link_name, side + 'Elbow_K', rospy.Time())
+            self.hand_base_link[side], _ = self.tfListener.lookupTransform(self.base_link_name, side + 'Hand_K', rospy.Time())
 
     def calculateAngles(self):
-        '''
-        Calculates the angle setpoints based on current joint positions.
-        '''
+        """ Calculates the angle setpoints based on current joint positions.
+
+        This function takes the joint positions read from the transforms and
+        calculates the matching joint angles for Pepper's arms. Only the
+        positions are used, not the orientations. For details on how the inverse
+        kinematics are calculated, see the documentation page.
+        """
         for side in ['L', 'R']:
-            #--- ShoulderPitch
+            #===== ShoulderPitch =====#
             self.angle_setpoints[side + 'ShoulderPitch'] = -math.atan2(self.elbow_base_link[side][2] - self.shoulder_base_link[side][2], self.elbow_base_link[side][0] - self.shoulder_base_link[side][0])
 
-            #--- ShoulderRoll
+            #===== ShoulderRoll =====#
             self.angle_setpoints[side + 'ShoulderRoll'] = math.atan2(self.elbow_base_link[side][1] - self.shoulder_base_link[side][1],
                 math.sqrt((self.elbow_base_link[side][0] - self.shoulder_base_link[side][0])**2 + (self.elbow_base_link[side][2] - self.shoulder_base_link[side][2])**2))
 
-            #--- ElbowYaw
-            # get shoulder transform as matrix
-            # Use the calculated pitch and roll (which is actually "yaw") rather than the transform from tfListener.
+            #===== ElbowYaw =====#
+            # Get shoulder transform as a matrix
+            # Use the calculated pitch and roll for the shoulder frame rather
+            # than the transform from tfListener.
             self.shoulder_rotation[side] = tf.transformations.quaternion_from_euler(0, self.angle_setpoints[side + 'ShoulderPitch'], self.angle_setpoints[side + 'ShoulderRoll'], 'rxyz')
             shoulder_transform = self.tfListener.fromTranslationRotation(self.shoulder_base_link[side], self.shoulder_rotation[side])
             shoulder_T_base_link = np.linalg.inv(shoulder_transform)
 
             # DEBUG: for visual debugging, transform is not used
-            #self.tfBroadcaster.sendTransform(shoulder_transform[0:3,3], tf.transformations.quaternion_from_matrix(shoulder_transform), rospy.Time.now(), side + 'ShoulderNew_K', 'base_link_K')
+            #self.tfBroadcaster.sendTransform(shoulder_transform[0:3,3], tf.transformations.quaternion_from_matrix(shoulder_transform), rospy.Time.now(), side + 'ShoulderNew_K', self.base_link_name)
 
-            # Update the hand and elbow points to obtain their values in the rotated shoulder frame
+            # Update the hand and elbow points to obtain their values in the
+            # rotated shoulder frame
             self.elbow_shoulder_link[side] = shoulder_T_base_link.dot(np.append(self.elbow_base_link[side], 1))
             self.hand_shoulder_link[side] = shoulder_T_base_link.dot(np.append(self.hand_base_link[side], 1))
 
@@ -178,16 +219,16 @@ class KinectControl:
             else:
                 self.angle_setpoints[side + 'ElbowYaw'] = self.theta[side]
 
-            #--- ElbowRoll
-            # apply Yaw rotation
+            #===== ElbowRoll =====#
+            # Apply Yaw rotation
             R = tf.transformations.euler_matrix(self.theta[side], 0, 0, 'rxyz')
             shoulder_rotated = shoulder_transform.dot(R)
             shoulder_rotated_T_base_link = np.linalg.inv(shoulder_rotated)
 
             # DEBUG: for visual debugging, transform is not used
-            #self.tfBroadcaster.sendTransform(shoulder_rotated[0:3,3], tf.transformations.quaternion_from_matrix(shoulder_rotated), rospy.Time.now(), side + 'ShoulderNewRot_K', 'base_link_K')
+            #self.tfBroadcaster.sendTransform(shoulder_rotated[0:3,3], tf.transformations.quaternion_from_matrix(shoulder_rotated), rospy.Time.now(), side + 'ShoulderNewRot_K', self.base_link_name)
 
-            # find new elbow and hand points
+            # Find new elbow and hand points
             self.elbow_rotated[side] = shoulder_rotated_T_base_link.dot(np.append(self.elbow_base_link[side], 1))
             self.hand_rotated[side] = shoulder_rotated_T_base_link.dot(np.append(self.hand_base_link[side], 1))
             if side == 'L':
@@ -197,6 +238,15 @@ class KinectControl:
 
             # DEBUG: print out angles in degrees for troubleshooting
             #print("#----- Side: %s -----#\n\tshoulder_pitch: %f\n\tshoulder_roll: %f\n\telbow_yaw: %f\n\telbow_roll: %f" % (side, self.angle_setpoints[side + 'ShoulderPitch']*(180/math.pi), self.angle_setpoints[side + 'ShoulderRoll']*(180/math.pi), self.angle_setpoints[side + 'ElbowYaw']*(180/math.pi), self.angle_setpoints[side + 'ElbowRoll']*(180/math.pi)))
+
+        #======================================================================#
+        # vvvvv Motion Filters vvvvv
+        #======================================================================#
+        # NOTE: This section of code was used to test a series of filters to
+        # improve the joint motion. They did not provide much benefit and were
+        # commented out. If you want to add filters to improve the motion, they
+        # should be added here. These filters may also be deleted if they remain
+        # unused
 
         # #===== Filter angle when close to a singularity =====#
         # for side in ['L', 'R']:
@@ -259,10 +309,12 @@ class KinectControl:
         #         self.angle_setpoints[key] = self.angle_setpoints_previous[key] + math.copysign(self.max_angle_change, angle_difference)
         # #==========================================================#
 
+        #======================================================================#
+        # ^^^^^ Motion Filters ^^^^^
+        #======================================================================#
+
     def publishCommand(self):
-        '''
-        Publishes the joint angle commands for Pepper.
-        '''
+        """ Publishes the joint angle commands for Pepper. """
         self.joint_angles_msg.joint_angles = [self.angle_setpoints[key] for key in self.joint_angles_msg.joint_names]
         self.joint_angles_pub.publish(self.joint_angles_msg)
 
@@ -270,12 +322,26 @@ class KinectControl:
         for key in self.joint_names:
             self.angle_setpoints_previous[key] = self.angle_setpoints[key]
 
+    # NOTE: This function corresponds to a filter that is currently UNUSED.
     def calculateLearningRate(self, angle, joint_name):
-        '''
-        Calculate the learning rate using a simple linear regression found wiih
+        """ Determines learning rate for singularity filter.
+
+        Calculates the learning rate using a simple linear regression found with
         the minimum learning rate assigned when the joint is at a singularity
         and increases to the maximum learning rate at the desired cutoff angle.
-        '''
+
+        Parameters
+        ----------
+        angle : float
+            The joint angle in radians.
+        joint_name : str
+            The name of the joint being filtered.
+
+        Returns
+        -------
+        float
+            The learning rate for the exponentially weighted average.
+        """
         # Calculate the learning rate
         learning_rate = self.a[joint_name] * angle + self.b[joint_name]
         learning_rate = min(self.max_learning_rate, learning_rate)

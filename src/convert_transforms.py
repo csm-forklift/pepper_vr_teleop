@@ -1,15 +1,36 @@
 #!/usr/bin/env python
+""" Converts the Kinect joint frames from OpenNI into Pepper's orientation.
 
-'''
-ROS Node that reads the transforms published by 'openni_tracker' and then
-generates transforms that match the joint frame orientations for Pepper.
+The OpenNI skeleton tracker broadcasts its frames using a different standard
+than Pepper. The torso and joint frames are defined from the camera's viewpoint
+with the X axis pointing LEFT, the Y axis pointing UP, and the Z axis pointing
+OUT. The end effectors (hands and feet) have frames defined from the camera's
+viewpoint with the X axis pointing RIGHT, the Y axis pointing DOWN, and the Z
+axis pointing OUT. These frames need to be rotated to match the standard
+robotics orientation used by Pepper where the X axis points FORWARD, the Y axis
+points LEFT, and the Z axis points UP. This node reads the OpenNI frames and
+rotates them to match Pepper's frames and then re-broadcasts them.
 
+ROS Node Description
+====================
 Parameters
-~main_frame: default='camera_link'
+----------
+~main_frame : str, default: 'camera_link'
+    The name of the main parent frame of the TF tree being broadcast by OpenNI.
+    It should be the name of the camera frame.
+~publish_skeleton : bool, default: True
+    Whether to publish the skeleton visualization markers for Rviz. This allows
+    for easy viewing. Otherwise they are simply viewed as transform frames.
 
-Topics
+Published Topics
+----------------
+visualization_marker : visualization_msgs/Marker
+    Publishes the skeleton as a linepath visualization marker for Rviz.
 
-'''
+Subscribed Topics
+-----------------
+None (Uses tf.TransformListener)
+"""
 
 import math
 from geometry_msgs.msg import Point, Vector3
@@ -21,14 +42,15 @@ from visualization_msgs.msg import Marker
 
 
 class Transform:
-    '''
+    """ Member variables defining a transformation frame.
+
     This class acts as a "struct" containing the main pieces needed to define
     each transform. The position is the (x,y.z) position of the origin in the
     parent frame. The rotation is the orientation of the frame represented as a
-    quaternion (x,y,z,w). THe parent is a string representing the parent frame
+    quaternion (x,y,z,w). The parent is a string representing the parent frame
     of the transform.
-    '''
-    def __init__(self, position=[0,0,0], rotation=[0,0,0,1], name='frame', parent='frame'):
+    """
+    def __init__(self, position=[0,0,0], rotation=[0,0,0,1], name='frame', parent='parent'):
         self.position = position
         self.rotation = rotation
         self.name = name
@@ -36,9 +58,12 @@ class Transform:
 
 class ConvertTransforms:
     def __init__(self):
-        #===== Initialize ROS Objects =====#
+        #======================================================================#
+        # ROS Setup
+        #======================================================================#
         rospy.init_node("convert_transforms")
 
+        #===== Parameters =====#
         # Publishing frequency
         self.frequency = 30 # Hz
         self.rate = rospy.Rate(self.frequency)
@@ -67,14 +92,23 @@ class ConvertTransforms:
                              self.pepper_frames[5]: [-math.pi/2, math.pi/2, 0, 'rzyx'],
                              self.pepper_frames[6]: [math.pi/2, math.pi/2, 0, 'rzyx']}
 
-        # Transform Listener/Broadcaster
+        #===== Transform Listener/Broadcaster =====#
         self.tfListener = tf.TransformListener()
         self.tfBroadcaster = tf.TransformBroadcaster()
 
-        #===== Create the new "base_link" frame and publish =====#
-        # I have to use a "signal" here because the "ctrl+c" sequence does not seem to work when in the "while" loop below.
+        #===== Publishers =====#
+        # Skeleton publisher
+        if self.publish_skeleton:
+            self.marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
+
+        #======================================================================#
+        # Setup "base_link" For New TF Tree
+        #======================================================================#
+        # Wait for torso frame from Kinect transforms
+        # I have to use a "signal" here because the "ctrl+c" sequence does not
+        # work if ROS is using simulation time.
         signal.signal(signal.SIGINT, self.shutdown)
-        message_delay = 10
+        message_delay = 10 # seconds to delay before displaying error again
         start_time = rospy.Time.now()
         transform_received = False
         while not transform_received:
@@ -82,7 +116,7 @@ class ConvertTransforms:
                 transform_received = True
             if rospy.Time.now() > start_time + rospy.Duration.from_sec(message_delay):
                 start_time = rospy.Time.now()
-                rospy.logwarn("[" + rospy.get_name() + "]: Have not received transform for 'torso_1'. Make sure 'openni_tracker' is running.")
+                rospy.logwarn('[{0}]: Have not received transform for \'torso_1\'. Make sure \'openni_tracker\' is running.'.format(rospy.get_name()))
             self.rate.sleep()
 
         position, rotation = self.tfListener.lookupTransform(self.main_parent, 'torso_1', rospy.Time())
@@ -100,11 +134,12 @@ class ConvertTransforms:
         # "base_link"
         self.tfBroadcaster.sendTransform(self.base_link.position, self.base_link.rotation, rospy.Time.now(), self.base_link.name, self.base_link.parent)
 
-        # Skeleton publisher
-        if self.publish_skeleton:
-            self.marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
-
+    #==========================================================================#
+    # Main Process
+    #==========================================================================#
     def spin(self):
+        """ Process loop: read transforms, generate new transforms, broadcast.
+        """
         while not rospy.is_shutdown():
             if self.updateTransforms():
                 self.publishTransforms()
@@ -113,11 +148,13 @@ class ConvertTransforms:
             self.rate.sleep()
 
     def updateTransforms(self):
-        '''
-        Updates the transforms based on new data from /tf
+        """ Updates the transforms based on new data from /tf.
 
-        If there are any errors, the function is exited and returns "False".
-        '''
+        This function reads the transforms coming in through the /tf topic. It
+        applies appropriate rotation to update the frames and stores the data in
+        member variables. It does not publish the new transforms. If there are
+        any errors, the function is exited and returns "False".
+        """
         try:
             #===== Update base_link =====#
             self.tfListener.waitForTransform(self.main_parent, 'torso_1', rospy.Time(), rospy.Duration.from_sec(1))
@@ -136,7 +173,7 @@ class ConvertTransforms:
             # base_link must be updated before the other transforms can be updated
             self.tfBroadcaster.sendTransform(self.base_link.position, self.base_link.rotation, rospy.Time.now(), self.base_link.name, self.base_link.parent)
 
-            #===== Update arm joints =====#
+            #===== Rotate arm joints to new frame =====#
             for i in range(len(self.pepper_frames)):
                 position, rotation = self.tfListener.lookupTransform(self.base_link.name, self.openni_frames[i], rospy.Time())
                 R = tf.transformations.quaternion_matrix(rotation)
@@ -145,24 +182,30 @@ class ConvertTransforms:
                 self.transforms[self.pepper_frames[i]].position = position
                 self.transforms[self.pepper_frames[i]].rotation = tf.transformations.quaternion_from_matrix(R_joint)
 
+            # Success
             return True
         except tf.Exception as err:
             print "[convert_transforms]: Transform read error: {0}".format(err)
+            # Failure
             return False
 
     def publishTransforms(self):
-        '''
-        Publishes the updated transforms.
-        '''
+        """ Publishes the updated transforms. """
         #===== Publish arm joints =====#
         for i in range(len(self.pepper_frames)):
             self.tfBroadcaster.sendTransform(self.transforms[self.pepper_frames[i]].position, self.transforms[self.pepper_frames[i]].rotation, rospy.Time.now(), self.transforms[self.pepper_frames[i]].name, self.base_link.name)
 
     def publishSkeletonMarker(self):
-        '''
-        Publishes an rviz "linepath" marker for visualizing the torso and arms.
-        '''
-        # lookupTransform for each important joint: baselink, shoulders, elbows, hands
+        """ Publishes an Rviz visualization of the skeleton.
+
+        All of the newly created transforms are read on the /tf topic in order
+        to obtain their positions. The positions are used as points in a
+        "linepath" marker for easily visualizing the torso and arms in Rviz
+        using lines instead of frame axes.
+        """
+        #===== Read Transforms =====#
+        # Use lookupTransform for each important joint: baselink, shoulders,
+        # elbows, hands
         self.tfListener.waitForTransform(self.base_link_name, 'LShoulder_K', rospy.Time(), rospy.Duration.from_sec(1.0))
         l_shoulder_position, _ = self.tfListener.lookupTransform(self.base_link_name, 'LShoulder_K', rospy.Time())
         self.tfListener.waitForTransform(self.base_link_name, 'LElbow_K', rospy.Time(), rospy.Duration.from_sec(1.0))
@@ -176,7 +219,8 @@ class ConvertTransforms:
         self.tfListener.waitForTransform(self.base_link_name, 'RHand_K', rospy.Time(), rospy.Duration.from_sec(1.0))
         r_hand_position, _ = self.tfListener.lookupTransform(self.base_link_name, 'RHand_K', rospy.Time())
 
-        # create the marker messages and store the positions as points
+        #===== Create Visualization Message =====#
+        # Generate "Point" objects using joint positions
         l_shoulder_point = Point(l_shoulder_position[0], l_shoulder_position[1], l_shoulder_position[2])
         l_elbow_point = Point(l_elbow_position[0], l_elbow_position[1], l_elbow_position[2])
         l_hand_point = Point(l_hand_position[0], l_hand_position[1], l_hand_position[2])
@@ -184,7 +228,7 @@ class ConvertTransforms:
         r_elbow_point = Point(r_elbow_position[0], r_elbow_position[1], r_elbow_position[2])
         r_hand_point = Point(r_hand_position[0], r_hand_position[1], r_hand_position[2])
 
-
+        # Create torso line marker
         torso_marker_msg = Marker()
         torso_marker_msg.header.frame_id = self.base_link_name
         torso_marker_msg.header.stamp = rospy.Time()
@@ -196,6 +240,7 @@ class ConvertTransforms:
         torso_marker_msg.frame_locked = True
         torso_marker_msg.points = [Point(0,0,0), l_shoulder_point, r_shoulder_point, Point(0, 0, 0)]
 
+        # Create left arm line marker
         l_arm_marker_msg = Marker()
         l_arm_marker_msg.header.frame_id = self.base_link_name
         l_arm_marker_msg.header.stamp = rospy.Time()
@@ -207,6 +252,7 @@ class ConvertTransforms:
         l_arm_marker_msg.frame_locked = True
         l_arm_marker_msg.points = [l_shoulder_point, l_elbow_point, l_hand_point]
 
+        # Create right arm line marker
         r_arm_marker_msg = Marker()
         r_arm_marker_msg.header.frame_id = self.base_link_name
         r_arm_marker_msg.header.stamp = rospy.Time()
@@ -218,12 +264,19 @@ class ConvertTransforms:
         r_arm_marker_msg.frame_locked = True
         r_arm_marker_msg.points = [r_shoulder_point, r_elbow_point, r_hand_point]
 
-        # publish the marker message
+        # Publish the marker messages
         self.marker_pub.publish(torso_marker_msg)
         self.marker_pub.publish(l_arm_marker_msg)
         self.marker_pub.publish(r_arm_marker_msg)
 
     def shutdown(self, signum, frame):
+        """ Callback function for shutting down.
+
+        In the case that ROS is using simulation time, if the user tries to
+        'ctrl-c' during a while loop with a rospy.Rate().sleep() function, it
+        will not exit. A Python 'signal' is used to then call this function to
+        shutdown ROS.
+        """
         rospy.signal_shutdown("No tf for 'torso_1', keyboard interrupt")
         sys.exit(1)
 

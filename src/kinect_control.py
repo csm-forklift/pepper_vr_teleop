@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-""" Sets Pepper's joint angles based off the user's pose.
+""" Sets Pepper's arm joint angles based off the user's pose.
 
 The transforms broadcasted by the 'convert_transforms' node are read and the
 joint positions are used to determine Pepper's joint angles. The inverse

@@ -1,13 +1,83 @@
 #!/usr/bin/env python
+""" Used to control Pepper through UI interface for joint testing.
 
-'''
-Node used to set Pepper in a particular pose. Can use the ROS DCM controller
-by publishing to topics for either the position control or trajectory control.
-Can also use the ALMotion library from Python for comparison.
-'''
+This node is used to set Pepper in a particular pose using a GUI rather than
+having to send a ROS message directly. It was originally used to test the
+various control methods available. It was determined that the Python SDK works
+the best. This node now defaults to that value and it is only used for the GUI
+functionality. It can use the ROS DCM controller by publishing to topics for
+either the position control or trajectory control. It can also use the ALMotion
+library from Python or the JointAnglesWithSpeed message type with the
+/pepper_robot/pose/joint_angles topic.
 
+ROS Node Description
+====================
+Parameters
+----------
+~control_type : str, default: 'almotion'
+    The type of control used to interface with Pepper.
+~robot_ip : str, default: '127.0.0.1'
+    The IP address of Pepper written as a string.
+~port : int, default: 9559
+    The networking port for Pepper.
+
+Published Topics
+----------------
+/pepper_robot/pose/joint_angles : naoqi_bridge_msgs/JointAnglesWithSpeed
+    The topic used by Pepper's ROS package that receives a message with the same
+    format as the Python SDK interface.
+/pepper_dcm/HeadYaw_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the HeadYaw
+    position.
+/pepper_dcm/HeadPitch_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the HeadPitch
+    position.
+/pepper_dcm/LShoulderPitch_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the
+    LShoulderPitch position.
+/pepper_dcm/LShoulderRoll_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the LShoulderRoll
+    position.
+/pepper_dcm/LElbowYaw_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the LElbowYaw
+    position.
+/pepper_dcm/LElbowRoll_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the LElbowRoll
+    position.
+/pepper_dcm/RShoulderPitch_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the
+    RShoulderPitch position.
+/pepper_dcm/RShoulderRoll_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the RShoulderRoll
+    position.
+/pepper_dcm/RElbowYaw_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the RElbowYaw
+    position.
+/pepper_dcm/RElbowRoll_position_controller/command : std_msgs/Float64
+    The topic communicating with the DCM controller that sends the RElbowRoll
+    position.
+/pepper_dcm/Head_controller/command : trajectory_msgs/JointTrajectory
+    The topic communicating with the DCM controller that sends a trajectory
+    message for the Head joints.
+/pepper_dcm/LeftArm_controller/command : trajectory_msgs/JointTrajectory
+    The topic communicating with the DCM controller that sends a trajectory
+    message for the LeftArm joints.
+/pepper_dcm/RightArm_controller/command : trajectory_msgs/JointTrajectory
+    The topic communicating with the DCM controller that sends a trajectory
+    message for the RightArm joints.
+
+Subscribed Topics
+-----------------
+/joint_states : sensor_msgs/JointState
+    The feedback data from the joint states. This is needed if using a specified
+    velocity while using the 'trajectory' control type since the speed must be
+    determined by the current joint error.
+"""
+
+# Python
 import math
 
+# ROS
 import rospy
 from naoqi_bridge_msgs.msg import JointAnglesWithSpeed
 from sensor_msgs.msg import JointState
@@ -17,21 +87,33 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from dynamic_reconfigure.server import Server
 from pepper_vr_teleop.cfg import TestControlConfig
 
+# NaoQI SDK
 from naoqi import ALProxy # for ALMotion API
 
 class TestControl:
     def __init__(self):
-        # Control Types (default = trajectory):
-        #   trajectory: use the dcm trajectory control topics, for this option
-        #               you need to be running the appropriate launch file for
-        #               trajectory control.
-        #   position: use the dcm position control topics, for this option you
-        #             need to be running the appropriate launch file for
-        #             position control.
-        #   almotion: use the ALMotion python library, for this option
-        #             you need to provide the robot's IP address and Port as
-        #             parameters to this node.
-        #   joint_angles: use the /pepper_robot/pose/joint_angles topic.
+        #======================================================================#
+        # ROS Setup
+        #======================================================================#
+        rospy.init_node("test_control")
+
+        #===== Parameters =====#
+        self.frequency = 30
+        self.rate = rospy.Rate(self.frequency)
+
+        """
+        Control Types (default = trajectory):
+          trajectory: use the dcm trajectory control topics, for this option
+                      you need to be running the appropriate launch file for
+                      trajectory control.
+          position: use the dcm position control topics, for this option you
+                    need to be running the appropriate launch file for
+                    position control.
+          almotion: use the ALMotion python library, for this option
+                    you need to provide the robot's IP address and Port as
+                    parameters to this node.
+          joint_angles: use the /pepper_robot/pose/joint_angles topic.
+        """
         self.control_types = ['trajectory', 'position', 'almotion','joint_angles']
         self.control_types_str = "["
         for i in range(len(self.control_types)):
@@ -40,39 +122,34 @@ class TestControl:
             else:
                 self.control_types_str += self.control_types[i] + "]"
 
-        #===== ROS Objects =====#
-        rospy.init_node("test_control")
-        self.frequency = 30
-        self.rate = rospy.Rate(self.frequency)
-
         # Validate "control_type" parameter
-        self.control_type = rospy.get_param('~control_type', 'trajectory')
+        self.control_type = rospy.get_param('~control_type', 'almotion')
         if (self.control_type not in self.control_types):
             rospy.logwarn("[" + rospy.get_name() + "]: The control_type parameter '%s', does not match any of the available control types:\n%s\nSetting to 'trajectory'", self.control_type, self.control_types_str)
-            self.control_type = 'trajectory'
+            self.control_type = 'almotion'
         rospy.loginfo("[" + rospy.get_name() + "]: using control type: " + self.control_type)
 
-        # Network connection variables, if using ALMotion
+        #----- Network connection -----#
+        # only if using ALMotion
         self.robot_ip = rospy.get_param('~robot_ip', '127.0.0.1')
         self.robot_port = rospy.get_param('~port', 9559)
 
+        #===== Publishers =====#
         # Set publishers based on control type
         # (trajectory is set as the "else" statement in order to make it the
         # default)
         if self.control_type == self.control_types[3]:
-            #--- joint_angles control ---#
+            #----- joint_angles control -----#
             self.joint_angles_pub = rospy.Publisher('/pepper_robot/pose/joint_angles', JointAnglesWithSpeed, queue_size=3)
             self.joint_angles_msg = JointAnglesWithSpeed()
             self.joint_angles_msg.header.seq = 0
             self.joint_anlges_msg.speed = 0.1
         elif self.control_type == self.control_types[2]:
-            #--- almotion control ---#
+            #----- almotion control -----#
             # Establish connection with robot
             self.motionProxy = ALProxy("ALMotion", self.robot_ip, self.robot_port)
             self.postureProxy = ALProxy("ALRobotPosture", self.robot_ip, self.robot_port)
             self.motionProxy.wakeUp()
-            # Not sure that I need this, it was in Skyler's code
-            # self.motionProxy.wbEnable(False)
             self.postureProxy.goToPosture('StandInit', 0.5)
 
             # Head
@@ -84,8 +161,7 @@ class TestControl:
             # Right Arm
             self.RightArmJoints = ['RShoulderPitch', 'RShoulderRoll', 'RElbowYaw', 'RElbowRoll']
         elif self.control_type == self.control_types[1]:
-            #--- position control ---#
-            print "setting position publishers"
+            #----- position control -----#
             # Head
             self.HeadYaw_pub = rospy.Publisher("/pepper_dcm/HeadYaw_position_controller/command", Float64, queue_size=10)
             self.HeadYaw_msg = Float64()
@@ -112,7 +188,7 @@ class TestControl:
             self.RElbowRoll_pub = rospy.Publisher("/pepper_dcm/RElbowRoll_position_controller/command", Float64, queue_size=10)
             self.RElbowRoll_msg = Float64()
         else:
-            #--- trajectory control ---#
+            #----- trajectory control -----#
             # Head
             self.Head_pub = rospy.Publisher("/pepper_dcm/Head_controller/command", JointTrajectory, queue_size=10)
             self.Head_msg = JointTrajectory()
@@ -128,6 +204,7 @@ class TestControl:
             self.RightArm_msg = JointTrajectory()
             self.RightArm_msg.joint_names = ['RShoulderPitch', 'RShoulderRoll', 'RElbowYaw', 'RElbowRoll', 'RWristYaw']
 
+            #===== Subscriber =====#
             # JointState feedback
             self.JointState_sub = rospy.Subscriber("/joint_states", JointState, self.jointStateCallback, queue_size=10)
 
@@ -161,24 +238,32 @@ class TestControl:
         # $ rosrun rqt_gui rqt_gui -s reconfigure
         reconfig_srv = Server(TestControlConfig, self.dynamicReconfigCallback)
 
+    #==========================================================================#
+    # Main Process
+    #==========================================================================#
     def spin(self):
+        """ Process loop: check command type, publish command. """
         while not rospy.is_shutdown():
             if self.control_type == self.control_types[3]:
-                #--- joint_angles control ---#
+                #===== joint_angles control =====#
                 self.publishJointAnglesCommand()
             elif self.control_type == self.control_types[2]:
-                #--- almotion control ---#
+                #===== almotion control =====#
                 self.publishALMotionCommand()
             elif self.control_type == self.control_types[1]:
-                #--- position control ---#
+                #===== position control =====#
                 self.publishPositionCommmand()
             else:
-                #--- trajectory control ---#
+                #===== trajectory control =====#
                 self.publishTrajectoryCommand()
             self.rate.sleep()
 
+    #==========================================================================#
+    # Command Publishing Functions
+    #==========================================================================#
     def publishALMotionCommand(self):
-        # Motion Parameters
+        """ Publish command using ALMotion. """
+        #===== Motion Parameters =====#
         # fractions from 0 - 1 where 1 = 100% (full speed)
         self.fractionMaxHeadSpeed = 0.25
         self.fractionMaxArmSpeed = 0.2
@@ -193,6 +278,7 @@ class TestControl:
         self.motionProxy.setAngles(self.RightArmJoints, [self.r_shoulder_pitch, self.r_shoulder_roll, self.r_elbow_yaw, self.r_elbow_roll], self.fractionMaxArmSpeed)
 
     def publishPositionCommmand(self):
+        """ Publish command using position control. """
         # Head
         self.HeadYaw_msg.data = self.head_yaw
         self.HeadPitch_msg.data = self.head_pitch
@@ -222,7 +308,8 @@ class TestControl:
         self.RElbowRoll_pub.publish(self.RElbowRoll_msg)
 
     def publishTrajectoryCommand(self):
-        # Motion Parameters
+        """ Publish command using Trajectory control. """
+        #===== Motion Parameters =====#
         # (these max values were arbitrarily selected by me based on how fast I felt comfotable with the arm motion, these values may be changed)
         self.max_head_velocity = math.pi # rad/s
         self.max_shoulder_velocity = math.pi
@@ -237,10 +324,10 @@ class TestControl:
         self.shoulder_velocity_desired = self.max_shoulder_velocity*self.fractionMaxArmSpeed
         self.elbow_velocity_desired = self.max_elbow_velocity*self.fractionMaxArmSpeed
 
-        #--- Calculate joint errors
+        #===== Calculate joint errors =====#
+        # NOTE: head joint calculations have been removed
         # self.head_errors = [self.head_yaw - self.head_yaw_current,
         #                     self.head_pitch - self.head_pitch_current]
-
         self.l_arm_errors = \
             [self.l_shoulder_pitch - self.l_shoulder_pitch_current,
              self.l_shoulder_roll - self.l_shoulder_roll_current,
@@ -269,6 +356,7 @@ class TestControl:
              abs(self.r_arm_errors[2]/self.elbow_velocity_desired),
              abs(self.r_arm_errors[3]/self.elbow_velocity_desired)]
 
+        #===== Set Motion Time =====#
         # Set the trajectory time to be the largest time required to achieve the desired velocity
         # self.head_motion_time = max(self.head_times)
         self.l_arm_motion_time = max(self.l_arm_times)
@@ -281,6 +369,7 @@ class TestControl:
         self.l_arm_motion_time = self.motion_time
         self.r_arm_motion_time = self.motion_time
 
+        #===== Set Trajectory Points =====#
         # # Head Trajectory
         # self.head_point = JointTrajectoryPoint()
         # self.head_point.positions = [self.head_yaw, self.head_pitch]
@@ -299,16 +388,21 @@ class TestControl:
         self.right_arm_point.time_from_start = rospy.Duration.from_sec(self.r_arm_motion_time)
         self.RightArm_msg.points = [self.right_arm_point]
 
-        # Publish
+        #===== Publish =====#
         self.Head_pub.publish(self.Head_msg)
         self.RightArm_pub.publish(self.RightArm_msg)
         self.LeftArm_pub.publish(self.LeftArm_msg)
 
     def publishJointAnglesCommand(self):
+        """ Publish command using JointAnglesWithSpeed message. """
         self.joint_angles_msg.joint_names = ['HeadYaw','HeadPitch','LShoulderPitch','LShoulderRoll','LElbowYaw','LElbowRoll','RShoulderPitch','RShoulderRoll','RElbowYaw','RElbowRoll']
         self.joint_angles_msg.joint_angles = [self.head_pitch, self.head_yaw, self.l_shoulder_pitch, self.l_shoulder_roll, self.l_elbow_yaw, self.l_elbow_roll, self.r_shoulder_pitch, self.r_shoulder_roll, self.r_elbow_yaw, self.r_elbow_roll]
 
+    #==========================================================================#
+    # Callback Functions
+    #==========================================================================#
     def jointStateCallback(self, msg):
+        """ Reads the joint angle commands. """
         # Parse the JointState message and only take the values of interest
         # self.head_yaw_current = msg.position[msg.name.index("HeadYaw")]
         # self.head_pitch_current = msg.position[msg.name.index("HeadPitch")]
@@ -322,6 +416,7 @@ class TestControl:
         self.r_elbow_roll_current = msg.position[msg.name.index("RElbowRoll")]
 
     def dynamicReconfigCallback(self, config, level):
+        """ Reads the slider values and sets the angle setpoints. """
         self.head_yaw = config.head_yaw
         self.head_pitch = config.head_pitch
         self.l_shoulder_pitch = config.l_shoulder_pitch

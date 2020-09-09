@@ -17,10 +17,8 @@ Published Topics
 ----------------
 /pepper_dcm/Head_controller/command : trajectory_msgs/JointTrajectory
     The trajectory command for the head joints.
-
 /pepper_dcm/LeftArm_controller/command : trajectory_msgs/JointTrajectory
     The trajectory command for the left arm joints.
-
 /pepper_dcm/RightArm_controller/command : trajectory_msgs/JointTrajectory
     The trajectory command for the right arm joints.
 
@@ -28,7 +26,6 @@ Subscribed Topics
 -----------------
 /pepper_interface/joint_angles : naoqi_bridge_msgs/JointAnglesWithSpeed
     The setpoints command for all joints.
-
 /pepper_interface/cmd_vel : geometry_msgs/Twist
     The velocity command for the base, including linear and angular velocity.
 """

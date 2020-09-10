@@ -359,7 +359,7 @@ class VRController():
         controller_x_axis: numpy array
             (3,) numpy array containing the controller's X axis vector.
         hand: {'L', 'R'}
-            The side to perform the optimization on. L' = left, 'R' = right
+            The side to perform the optimization on. 'L' = left, 'R' = right
 
         Returns
         -------

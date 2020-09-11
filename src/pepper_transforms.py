@@ -150,13 +150,13 @@ class PepperModel(object):
 
     Methods
     -------
-    checkKeys(keys)
+    checkKeys(keys) -> list of str
         Checks a list of keys for valid joint names.
-    checkSide(name, side)
+    checkSide(name, side) -> {'L', 'R'}
         Validates the 'side' parameter.
     broadcastTransforms(broadcaster)
         Broadcasts the transforms on the '/tf' topic.
-    getAngles()
+    getAngles() -> list of float
         Returns the current joint angle configuration as a list of floats.
     setAngles(joint_angles)
         Updates current angles contained in 'joint_angles' parameter.
@@ -166,7 +166,7 @@ class PepperModel(object):
         Updates arm transforms using the current angle configuration.
     setTransforms(joint_values, side)
         Updates the current angles for the arm, then updates the transforms.
-    getHandTransform(side)
+    getHandTransform(side) -> numpy array
         Calculates the hand transform for a given side.
 
     Parameters

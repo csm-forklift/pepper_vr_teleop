@@ -1,10 +1,21 @@
-"""
-Module containing two objects used for the VR Controller Inverse Kinematics.
+""" Module containing classes used to generate a forward kinematics model of
+Pepper.
 
-Transform:
+The 'vr_hand_controllers' node requires a model of Pepper in order to perform
+inverse kinematics to determine the optimal joint configuration to produce a
+desired hand orientation. The classes in this module were designed to facilitate
+this action. The PepperModel class is able to perform the forward kinematics
+given a joint configuration. The 'vr_hand_controllers' node solves the inverse
+kinematics problem by iteratively performing the forward kinematics until the
+input joint configuration produces the desired output hand pose. This is done
+using a scipy optimization solver.
 
-PepperModel:
-
+Classes
+-------
+Transform : object
+    Class containing transformation data.
+PepperModel : object
+    Defines links and joints for a kinematic Pepper model.
 """
 
 # Python
@@ -15,7 +26,7 @@ import rospy
 import tf
 
 
-class Transform():
+class Transform(object):
     """ Class containing transformation data.
 
     Class that stores the position and orientation values for a transformation.
@@ -107,7 +118,7 @@ class Transform():
         return T
 
 
-class PepperModel():
+class PepperModel(object):
     """ Defines links and joints for a kinematic Pepper model.
 
     Attributes
@@ -397,7 +408,7 @@ class PepperModel():
             self.Elbow['R'].quaternion = tf.transformations.quaternion_from_euler(self.current_angles['RElbowYaw'], 0., self.current_angles['RElbowRoll'], 'rxyz')
             self.Wrist['R'].quaternion = tf.transformations.quaternion_from_euler(self.current_angles['RWristYaw'], 0., 0., 'rxyz')
 
-    def setTransforms(self, joint_values, side):
+    def setTransforms(self, joint_values, side=None):
         """ Updates the current angles for the arm, then updates the transforms.
 
         Parameters
@@ -410,14 +421,23 @@ class PepperModel():
             The side to set the transforms for. 'L' = left, 'R' = right, if
             'None', both sides are set.
         """
-        # Validate parameters
-        if (len(joint_values) != 5):
-            raise ValueError('Invalid number of joint values: \'{0}\'. Must be 5'.format(len(joint_values)))
-        side = self.checkSide(self.__class__.__name__ + '.setTransforms()', side)
+        if size is None:
+            # Validate parameters
+            if (len(joint_values != 10)):
+                raise ValueError('Invalid number of joint values: \'{0}\'. Must be 10'.format(len(joint_values)))
 
-        # Set the transforms
-        self.setAngles(dict(zip(joint_names_side[side], joint_values)))
-        self.updateTransforms(side)
+            # Set the transfroms
+            self.setAngles(dict(zip(self.joint_names, joint_values)))
+            self.updateTransforms()
+        else:
+            # Validate parameters
+            if (len(joint_values) != 5):
+                raise ValueError('Invalid number of joint values: \'{0}\'. Must be 5'.format(len(joint_values)))
+            side = self.checkSide(self.__class__.__name__ + '.setTransforms()', side)
+
+            # Set the transforms
+            self.setAngles(dict(zip(self.joint_names_side[side], joint_values)))
+            self.updateTransforms(side)
 
     def getHandTransform(self, side):
         """ Calculates the hand transform for a given side.

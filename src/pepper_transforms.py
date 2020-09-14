@@ -365,7 +365,7 @@ class PepperModel(object):
         valid_joints = self.checkKeys(joint_angles.keys())
 
         # Set current angles
-        for joint in valid_joint:
+        for joint in valid_joints:
             self.current_angles[joint] = joint_angles[joint]
 
     def _setCurrentAngles(self, joint_angles):
@@ -387,7 +387,7 @@ class PepperModel(object):
             'RWristYaw': 0.9}
         """
         # Set current angles
-        for joint in joint_angles.keys()
+        for joint in joint_angles.keys():
             self.current_angles[joint] = joint_angles[joint]
 
     def updateTransforms(self, side=None):
@@ -421,9 +421,9 @@ class PepperModel(object):
             The side to set the transforms for. 'L' = left, 'R' = right, if
             'None', both sides are set.
         """
-        if size is None:
+        if side is None:
             # Validate parameters
-            if (len(joint_values != 10)):
+            if (len(joint_values) != 10):
                 raise ValueError('Invalid number of joint values: \'{0}\'. Must be 10'.format(len(joint_values)))
 
             # Set the transfroms

@@ -255,6 +255,7 @@ class VRController():
         self.pepper_origin = {
             'L': Transform(self.pepper_model.hand_origin['L'], [0., 0., 0., 1.], 'base_link_V', 'LOrigin_P'),
             'R': Transform(self.pepper_model.hand_origin['R'], [0., 0., 0., 1.], 'base_link_V', 'ROrigin_P')
+        }
         self.pepper_setpoint = {
             'L': Transform([0., 0., 0.], [0., 0., 0., 1.], 'base_link_V', 'LSetpoint_P'),
             'R': Transform([0., 0., 0.], [0., 0., 0., 1.], 'base_link_V', 'RSetpoint_P')
@@ -372,11 +373,11 @@ class VRController():
             # Run optimization
             res_arm[side] = minimize(self.objective, x0, args=(pepper_setpoint_position, rotation[0:3,0], side), method=opt_method, bounds=self.bounds_arm[side])
 
-    #===== Perform inverse kinematics optimization for wrists =====#
-    for side in ['L', 'R']:
-        rotation = tf.transformations.quaternion_matrix(self.controller_rotated[side].quaternion)[0:3,0:3]
-        x0 = self.initial_pose_wrist[side]
-        res_wrist[side] = minimize(self.objectiveWrist, x0, args=(res_arm[side].x, rotation[0:3,1], rotation[0:3,2], side), method=opt_method, bounds=self.bounds_wrist[side])
+        #===== Perform inverse kinematics optimization for wrists =====#
+        for side in ['L', 'R']:
+            rotation = tf.transformations.quaternion_matrix(self.controller_rotated[side].quaternion)[0:3,0:3]
+            x0 = self.initial_pose_wrist[side]
+            res_wrist[side] = minimize(self.objectiveWrist, x0, args=(res_arm[side].x, rotation[0:3,1], rotation[0:3,2], side), method=opt_method, bounds=self.bounds_wrist[side])
 
         #===== Set Joint Angles =====#
         for side in ['L', 'R']:
@@ -400,23 +401,23 @@ class VRController():
 
         # Calculate position error
         left_position = left_transform[0:3,3]
-        left_error = left_pepper_setpoint - left_position
+        left_error = np.array(self.pepper_setpoint['L'].position) - left_position
         left_position_error = np.sum(left_error**2)
 
         # Calculate orientation error
         left_x_axis = left_transform[0:3,0]
-        left_controller_x_axis = left_rotation[0:3,0]
+        left_controller_x_axis = tf.transformations.quaternion_matrix(self.controller_rotated['L'].quaternion)[0:3,0]
 
         left_orientation_error = np.arccos(left_x_axis.dot(left_controller_x_axis))/np.pi
 
         right_transform = self.pepper_model.getHandTransform('R')
 
         right_position = right_transform[0:3,3]
-        right_error = right_pepper_setpoint - right_position
+        right_error = np.array(self.pepper_setpoint['R'].position) - right_position
         right_position_error = np.sum(right_error**2)
 
         right_x_axis = right_transform[0:3,0]
-        right_controller_x_axis = right_rotation[0:3,0]
+        right_controller_x_axis = tf.transformations.quaternion_matrix(self.controller_rotated['R'].quaternion)[0:3,0]
 
         right_orientation_error = np.arccos(right_x_axis.dot(right_controller_x_axis))/np.pi
 

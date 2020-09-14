@@ -4,6 +4,7 @@
     <arg name="start_vive" default="false"/>
     <arg name="speed_fraction" default="0.1"/>
     <arg name="calibration_time" default="1.0"/>
+    <arg name="image_topic" default="/pepper_interface/camera_front/image_raw"/>
 
 	<!-- Start the Vive ROS Nodes -->
 	<include file="$(find pepper_vr_teleop)/launch/vive_ros.launch" if="$(arg start_vive)"/>
@@ -13,12 +14,13 @@
 	<node name="headset_control" pkg="pepper_vr_teleop" type="headset_control.py" output="screen">
 		<param name="speed_fraction" value="$(arg speed_fraction)"/>
 		<param name="calibration_time" value="$(arg calibration_time)"/>
+		<!-- Manually set yaw offset here to skip initial calibration -->
 		<!--<param name="yaw_offset" value="0.6"/>-->
 	</node>
 
 	<!-- Convert images to be used in the VR Headset -->
 	<node name="image_to_vr" pkg="pepper_vr_teleop" type="image_to_vr.py" output="screen">
-		<param name="image_topic" value="/pepper_interface/camera/front/image_raw"/>
+		<param name="image_topic" value="$(arg image_topic)"/>
 	</node>
 
 </launch>

@@ -1,7 +1,12 @@
 <!-- Launch nodes to control Pepper's base using torso orientation -->
 <launch>
-
+    
+    <!-- Constants -->
     <arg name="pi" value="3.141592654"/>
+
+    <!-- Arguments -->
+    <arg name="calibration_time" default="1.0"/>
+    <!-- If kinect_teleop.launch is not running, set this to 'true' -->
     <arg name="start_kinect" default="false"/>
     
     <group if="$(arg start_kinect)">
@@ -18,7 +23,7 @@
     </group>
 
     <node name="torso_control" pkg="pepper_vr_teleop" type="torso_control.py" output="screen">
-        <param name="calibration_time" value="3.0"/>
+        <param name="calibration_time" value="$(arg calibration_time)"/>
         <param name="deadband_x" value="0.15"/>
         <param name="deadband_y" value="0.15"/>
         <param name="deadband_angle" value="$(eval arg('pi')/10)"/>

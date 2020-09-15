@@ -21,5 +21,4 @@
     </application>
 
     <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-feature android:name="com.softbank.hardware.pepper"/>
 </manifest>

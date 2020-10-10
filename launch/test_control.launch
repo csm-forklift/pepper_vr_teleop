@@ -2,7 +2,7 @@
 <launch>
 
     <!-- <arg name="pepper_ip" default="169.254.5.105"/> -->
-    <arg name="pepper_ip" default="138.67.198.34"/>
+    <arg name="pepper_ip" default="138.67.202.228"/>
     <arg name="pepper_port" default="9559"/>
     <arg name="roscore_ip" default="169.254.13.225"/>
     <arg name="network_interface" default="eno1"/>

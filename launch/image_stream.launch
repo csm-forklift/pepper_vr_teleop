@@ -2,7 +2,7 @@
 <launch>
 
     <!-- Arguments -->
-    <arg name="server_ip" default="192.168.2.3"/>
+    <arg name="server_ip" default="138.67.66.181"/>
     <arg name="server_port" default="65432"/>
     <arg name="image_type" default="jpeg"/>
     <arg name="compression" default="50"/>

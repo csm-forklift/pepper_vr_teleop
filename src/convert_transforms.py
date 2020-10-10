@@ -87,7 +87,7 @@ class ConvertTransforms:
         self.euler_angles = {self.pepper_frames[0]: [-math.pi/2, 0, 0, 'rxyz'],
                              self.pepper_frames[1]: [-math.pi/2, 0, 0, 'rxyz'],
                              self.pepper_frames[2]: [-math.pi/2, math.pi/2, 0, 'rzyx'],
-                             self.pepper_frames[3]: [math.pi, 0, math.pi/2, 'rzyx'],
+                             self.pepper_frames[3]: [math.pi/2, math.pi, 0, 'rxyz'],
                              self.pepper_frames[4]: [math.pi/2, math.pi, 0, 'rxyz'],
                              self.pepper_frames[5]: [-math.pi/2, math.pi/2, 0, 'rzyx'],
                              self.pepper_frames[6]: [math.pi/2, math.pi/2, 0, 'rzyx']}
